@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WAVR — Your Music</title>
+  <meta name="description" content="Personal music streaming powered by Last.fm & YouTube" />
+  <link rel="stylesheet" href="style.css" />
+
+  <!-- Preconnect for perf -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+
+  <!-- YouTube IFrame API (loaded async) -->
+  <script src="https://www.youtube.com/iframe_api"></script>
+</head>
+<body>
+
+<!-- ── TOP BAR ───────────────────────────────────────────── -->
+<header id="topbar">
+  <div class="logo">W<span>AVR</span></div>
+
+  <div id="search-wrap">
+    <span class="search-icon">⌕</span>
+    <input
+      id="search-input"
+      type="text"
+      placeholder="Search songs, artists…"
+      autocomplete="off"
+      spellcheck="false"
+    />
+    <div id="search-results-dropdown"></div>
+  </div>
+</header>
+
+<!-- ── MAIN CONTENT ──────────────────────────────────────── -->
+<main id="main">
+
+  <!-- Trending in India -->
+  <section class="section">
+    <div class="section-header">
+      <span class="section-dot dot-pink"></span>
+      <h2 class="section-title">Trending in India</h2>
+      <span class="section-sub">via Last.fm</span>
+    </div>
+    <div id="trending-list">
+      <div class="skeleton-list">
+        <div class="list-track"><span class="lt-num">1</span><div class="lt-cover skeleton"></div><div class="lt-info"><div class="skeleton" style="height:12px;width:140px;border-radius:4px"></div><div class="skeleton" style="height:10px;width:90px;border-radius:4px;margin-top:6px"></div></div></div>
+        <div class="list-track"><span class="lt-num">2</span><div class="lt-cover skeleton"></div><div class="lt-info"><div class="skeleton" style="height:12px;width:120px;border-radius:4px"></div><div class="skeleton" style="height:10px;width:80px;border-radius:4px;margin-top:6px"></div></div></div>
+        <div class="list-track"><span class="lt-num">3</span><div class="lt-cover skeleton"></div><div class="lt-info"><div class="skeleton" style="height:12px;width:150px;border-radius:4px"></div><div class="skeleton" style="height:10px;width:100px;border-radius:4px;margin-top:6px"></div></div></div>
+        <div class="list-track"><span class="lt-num">4</span><div class="lt-cover skeleton"></div><div class="lt-info"><div class="skeleton" style="height:12px;width:130px;border-radius:4px"></div><div class="skeleton" style="height:10px;width:90px;border-radius:4px;margin-top:6px"></div></div></div>
+        <div class="list-track"><span class="lt-num">5</span><div class="lt-cover skeleton"></div><div class="lt-info"><div class="skeleton" style="height:12px;width:110px;border-radius:4px"></div><div class="skeleton" style="height:10px;width:70px;border-radius:4px;margin-top:6px"></div></div></div>
+        <div class="list-track"><span class="lt-num">6</span><div class="lt-cover skeleton"></div><div class="lt-info"><div class="skeleton" style="height:12px;width:140px;border-radius:4px"></div><div class="skeleton" style="height:10px;width:90px;border-radius:4px;margin-top:6px"></div></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- New Releases -->
+  <section class="section">
+    <div class="section-header">
+      <span class="section-dot dot-purple"></span>
+      <h2 class="section-title">New Releases</h2>
+      <span class="section-sub">via Deezer</span>
+    </div>
+    <div class="scroll-row" id="new-releases-row">
+      <div class="track-card"><div class="skeleton sk-cover"></div><div class="skeleton sk-text-l"></div><div class="skeleton sk-text-s"></div></div>
+      <div class="track-card"><div class="skeleton sk-cover"></div><div class="skeleton sk-text-l"></div><div class="skeleton sk-text-s"></div></div>
+      <div class="track-card"><div class="skeleton sk-cover"></div><div class="skeleton sk-text-l"></div><div class="skeleton sk-text-s"></div></div>
+      <div class="track-card"><div class="skeleton sk-cover"></div><div class="skeleton sk-text-l"></div><div class="skeleton sk-text-s"></div></div>
+      <div class="track-card"><div class="skeleton sk-cover"></div><div class="skeleton sk-text-l"></div><div class="skeleton sk-text-s"></div></div>
+      <div class="track-card"><div class="skeleton sk-cover"></div><div class="skeleton sk-text-l"></div><div class="skeleton sk-text-s"></div></div>
+    </div>
+  </section>
+
+  <!-- Recommended -->
+  <section class="section">
+    <div class="section-header">
+      <span class="section-dot dot-green"></span>
+      <h2 class="section-title">Recommended for You</h2>
+    </div>
+    <div class="scroll-row" id="recommended-row">
+      <div class="track-card"><div class="skeleton sk-cover"></div><div class="skeleton sk-text-l"></div><div class="skeleton sk-text-s"></div></div>
+      <div class="track-card"><div class="skeleton sk-cover"></div><div class="skeleton sk-text-l"></div><div class="skeleton sk-text-s"></div></div>
+      <div class="track-card"><div class="skeleton sk-cover"></div><div class="skeleton sk-text-l"></div><div class="skeleton sk-text-s"></div></div>
+      <div class="track-card"><div class="skeleton sk-cover"></div><div class="skeleton sk-text-l"></div><div class="skeleton sk-text-s"></div></div>
+      <div class="track-card"><div class="skeleton sk-cover"></div><div class="skeleton sk-text-l"></div><div class="skeleton sk-text-s"></div></div>
+      <div class="track-card"><div class="skeleton sk-cover"></div><div class="skeleton sk-text-l"></div><div class="skeleton sk-text-s"></div></div>
+    </div>
+  </section>
+
+  <!-- Mood Rows -->
+  <section class="section">
+    <div class="section-header">
+      <span class="section-dot dot-yellow"></span>
+      <h2 class="section-title">Pick a Mood</h2>
+    </div>
+    <div class="mood-grid">
+      <div class="mood-card mood-happy" onclick="playMood('happy')">
+        <span class="mood-emoji">😄</span>Happy
+      </div>
+      <div class="mood-card mood-sad" onclick="playMood('sad')">
+        <span class="mood-emoji">🌧</span>Sad
+      </div>
+      <div class="mood-card mood-party" onclick="playMood('party')">
+        <span class="mood-emoji">🎉</span>Party
+      </div>
+      <div class="mood-card mood-chill" onclick="playMood('chill')">
+        <span class="mood-emoji">🌊</span>Chill
+      </div>
+      <div class="mood-card mood-focus" onclick="playMood('focus')">
+        <span class="mood-emoji">🎯</span>Focus
+      </div>
+      <div class="mood-card mood-energy" onclick="playMood('energy')">
+        <span class="mood-emoji">⚡</span>Energy
+      </div>
+    </div>
+  </section>
+
+  <!-- Featured Artists -->
+  <section class="section">
+    <div class="section-header">
+      <span class="section-dot dot-purple"></span>
+      <h2 class="section-title">Featured Artists</h2>
+    </div>
+    <div class="scroll-row" id="artists-row">
+      <div class="artist-card"><div class="artist-avatar skeleton"></div><div class="skeleton" style="height:11px;width:80px;border-radius:4px;margin:0 auto"></div></div>
+      <div class="artist-card"><div class="artist-avatar skeleton"></div><div class="skeleton" style="height:11px;width:80px;border-radius:4px;margin:0 auto"></div></div>
+      <div class="artist-card"><div class="artist-avatar skeleton"></div><div class="skeleton" style="height:11px;width:80px;border-radius:4px;margin:0 auto"></div></div>
+      <div class="artist-card"><div class="artist-avatar skeleton"></div><div class="skeleton" style="height:11px;width:80px;border-radius:4px;margin:0 auto"></div></div>
+      <div class="artist-card"><div class="artist-avatar skeleton"></div><div class="skeleton" style="height:11px;width:80px;border-radius:4px;margin:0 auto"></div></div>
+      <div class="artist-card"><div class="artist-avatar skeleton"></div><div class="skeleton" style="height:11px;width:80px;border-radius:4px;margin:0 auto"></div></div>
+    </div>
+  </section>
+
+</main>
+
+<!-- ── PLAYER BAR ─────────────────────────────────────────── -->
+<div id="player">
+
+  <!-- Left: track info -->
+  <div class="player-left">
+    <img id="player-cover" src="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='52' height='52'><rect fill='%23141826' width='52' height='52'/><text x='50%' y='55%' font-size='22' text-anchor='middle' dominant-baseline='middle'>♪</text></svg>" alt="cover" />
+    <div class="player-track-info">
+      <div id="player-title" style="color:var(--text3);font-size:.82rem">Nothing playing</div>
+      <div id="player-artist" style="color:var(--text3);font-size:.75rem">Pick a song above</div>
+    </div>
+  </div>
+
+  <!-- Center: controls + progress -->
+  <div class="player-center">
+    <div class="player-controls">
+      <button class="ctrl-btn" id="prev-btn" title="Previous">⏮</button>
+      <button id="play-btn" title="Play / Pause">▶</button>
+      <button class="ctrl-btn" id="next-btn" title="Next">⏭</button>
+    </div>
+    <div class="player-progress">
+      <span class="time-label" id="time-current">0:00</span>
+      <input type="range" id="progress-bar" min="0" max="100" value="0" />
+      <span class="time-label" id="time-total">0:00</span>
+    </div>
+  </div>
+
+  <!-- Right: volume -->
+  <div class="player-right">
+    <span class="vol-icon">🔊</span>
+    <input type="range" id="volume-bar" min="0" max="100" value="80" />
+  </div>
+
+</div>
+
+<!-- YouTube player target — must NOT be display:none, hidden via CSS position trick -->
+<div id="yt-frame"></div>
+
+<!-- Toast -->
+<div id="toast"></div>
+
+<!-- Scripts -->
+<script src="config.js"></script>
+<script src="app.js"></script>
+
+</body>
+</html>
