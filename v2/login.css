@@ -1,0 +1,60 @@
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap');
+
+:root {
+  --bg:      #080b12;
+  --bg2:     #0e1220;
+  --bg3:     #141826;
+  --surface: rgba(255,255,255,0.04);
+  --surface2:rgba(255,255,255,0.07);
+  --border:  rgba(255,255,255,0.08);
+  --accent:  #7c6aff;
+  --accent2: #ff6a9f;
+  --accent3: #6affd4;
+  --text:    #f0f2ff;
+  --text2:   #8890b0;
+  --text3:   #4a5070;
+  --radius:  14px;
+  --radius-sm: 9px;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+
+body {
+  font-family: 'DM Sans', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  overflow-x: hidden;
+}
+
+/* ── BACKGROUND ORBS ── */
+.auth-bg {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  overflow: hidden;
+}
+
+.auth-bg-orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(80px);
+  opacity: 0.5;
+  animation: float 8s ease-in-out infinite;
+}
+
+.orb1 {
+  width: 500px; height: 500px;
+  background: radial-gradient(circle, rgba(124,106,255,0.25), transparent 70%);
+  top: -150px; left: -150px;
+  animation-delay: 0s;
+}
+
+.orb2 {
+  width: 400
