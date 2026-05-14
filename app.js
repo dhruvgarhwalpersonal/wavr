@@ -129,6 +129,29 @@ window.onYouTubeIframeAPIReady = () => {
     events: {
       onReady: () => { state.ytReady = true; },
       onStateChange: onYTStateChange,
+      onError: (e) => {
+        // YT error codes: 2=bad param, 5=HTML5 error, 100=not found, 101/150=embed not allowed
+        console.warn('YouTube player error code:', e.data);
+        const msg = e.data === 100 ? 'Video not found on YouTube'
+                  : e.data === 101 || e.data === 150 ? 'This video cannot be embedded'
+                  : 'YouTube playback error';
+        // Fall back to Deezer preview if available
+        const track = state.currentTrack;
+        if (track?.preview) {
+          showToast(`${msg} — switching to preview`);
+          playDeezerPreview(track);
+        } else if (track) {
+          // Try fetching preview from Deezer
+          deezerFetch(`/track/${track.id}`).then(data => {
+            if (data?.preview) {
+              track.preview = data.preview;
+              playDeezerPreview(track);
+            } else {
+              showToast(msg + ' — try another track');
+            }
+          }).catch(() => showToast(msg + ' — try another track'));
+        }
+      },
     },
   });
 };
@@ -316,13 +339,21 @@ async function findBestYouTubeVideo(track) {
 
   let bestVideoId = null;
   let bestScore   = -1;
+  let lastError   = null;
 
   for (const query of queries) {
     let items = [];
     try {
       items = await searchYouTube(query, 5);
-    } catch {
-      continue; // quota hit or network error — try next query
+    } catch (err) {
+      lastError = err;
+      // If it's a quota/auth error, no point trying more queries
+      if (err.message?.includes('403') || err.message?.includes('400') || err.message?.includes('quota')) {
+        console.warn('YouTube API error:', err.message);
+        state._ytApiError = err.message;
+        break;
+      }
+      continue; // network glitch — try next query
     }
 
     for (const item of items) {
@@ -335,6 +366,10 @@ async function findBestYouTubeVideo(track) {
 
     // Good enough — stop burning API quota
     if (bestScore >= SCORE_THRESHOLD && bestVideoId) break;
+  }
+
+  if (!bestVideoId && lastError) {
+    console.warn('findBestYouTubeVideo failed:', lastError.message);
   }
 
   // Last resort: if we got any video at all, use it
@@ -443,11 +478,13 @@ function handleListPlay(idx) {
 //  PLAY TRACK — Full rewrite with global fallback chain:
 //  1. Find best YouTube video via scored waterfall
 //  2. If YouTube finds nothing → play Deezer 30s preview
-//  3. If no preview → show helpful error
+//  3. If no preview → fetch it from Deezer by track ID
+//  4. If all else fails → helpful error toast
 // ══════════════════════════════════════════════════════════
 async function playTrack(track) {
   if (!track) return;
   state.currentTrack = track;
+  state._ytApiError  = null;
 
   const fallbackSrc = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="52" height="52"><rect fill="%23141826" width="52" height="52"/><text x="50%25" y="55%25" font-size="22" text-anchor="middle" dominant-baseline="middle" fill="%234a5070">♪</text></svg>';
   document.getElementById('player-cover').src = track.cover || fallbackSrc;
@@ -457,42 +494,41 @@ async function playTrack(track) {
 
   showToast(`Loading "${track.name}"…`);
 
+  // Stop any existing preview audio
+  if (previewAudio) { previewAudio.pause(); previewAudio = null; }
+
   try {
     // ── STEP 1: Find best YouTube video ──────────────────
-    const videoId = await findBestYouTubeVideo(track);
-
-    if (videoId) {
-      // Load into hidden YouTube IFrame player
-      const loadVideo = () => {
-        state.ytPlayer.loadVideoById(videoId);
-        const vol = parseInt(document.getElementById('volume-bar').value, 10);
-        if (state.ytPlayer?.setVolume) state.ytPlayer.setVolume(vol);
-      };
-
-      if (state.ytReady && state.ytPlayer) {
-        loadVideo();
-      } else {
-        const check = setInterval(() => {
-          if (state.ytReady && state.ytPlayer) {
-            clearInterval(check);
-            loadVideo();
-          }
-        }, 200);
-      }
-
-      showToast(`▶ ${track.name}`);
-      updateRecommendations(track.artist, track.name);
-      return;
+    let videoId = null;
+    try {
+      videoId = await findBestYouTubeVideo(track);
+    } catch (err) {
+      console.warn('YouTube search threw:', err);
     }
 
-    // ── STEP 2: Deezer 30s preview fallback ──────────────
-    // Works for virtually every track on Deezer — guaranteed correct song
+    if (videoId) {
+      // Wait for YT player to be ready (with 8s timeout)
+      await waitForYTReady(8000);
+
+      if (state.ytReady && state.ytPlayer) {
+        state.ytPlayer.loadVideoById(videoId);
+        const vol = parseInt(document.getElementById('volume-bar').value, 10);
+        state.ytPlayer.setVolume(vol);
+        showToast(`▶ ${track.name}`);
+        updateRecommendations(track.artist, track.name);
+        return;
+      }
+      // YT player failed to initialise — fall through to preview
+      console.warn('YT player not ready after timeout, falling back to preview');
+    }
+
+    // ── STEP 2: Deezer 30s preview (already on the object) ──
     if (track.preview) {
       playDeezerPreview(track);
       return;
     }
 
-    // ── STEP 3: Try fetching the track from Deezer to get preview ──
+    // ── STEP 3: Fetch preview URL from Deezer by track ID ──
     if (track.id && !track.id.startsWith('itunes-')) {
       try {
         const data = await deezerFetch(`/track/${track.id}`);
@@ -504,21 +540,50 @@ async function playTrack(track) {
       } catch {}
     }
 
-    // ── STEP 4: Nothing worked ────────────────────────────
-    showToast(`"${track.name}" not available — try another track`);
-
-  } catch (err) {
-    console.error('Playback error:', err);
-    // If YouTube API quota exceeded — fall back to Deezer preview
-    if (err.message?.includes('403') || err.message?.includes('quota')) {
-      if (track.preview) {
-        showToast('YouTube quota hit — playing preview');
+    // ── STEP 4: Search Deezer to find track with preview ───
+    try {
+      const q = `${track.name} ${track.artist}`;
+      const data = await searchDeezer(q, 3);
+      const match = (data.data || []).find(t => t.preview);
+      if (match) {
+        track.preview = match.preview;
         playDeezerPreview(track);
         return;
       }
+    } catch {}
+
+    // ── STEP 5: Nothing worked ────────────────────────────
+    const reason = state._ytApiError?.includes('403') || state._ytApiError?.includes('quota')
+      ? 'YouTube quota exceeded — check your API key'
+      : `"${track.name}" not available right now`;
+    showToast(reason);
+
+  } catch (err) {
+    console.error('Playback error:', err);
+    if (track.preview) {
+      showToast('Switching to preview mode');
+      playDeezerPreview(track);
+      return;
     }
     showToast('Playback error — try another track');
   }
+}
+
+// ── Wait for YouTube IFrame player to be ready ─────────────
+function waitForYTReady(timeoutMs = 8000) {
+  return new Promise(resolve => {
+    if (state.ytReady && state.ytPlayer) { resolve(); return; }
+    const start = Date.now();
+    const check = setInterval(() => {
+      if (state.ytReady && state.ytPlayer) {
+        clearInterval(check);
+        resolve();
+      } else if (Date.now() - start > timeoutMs) {
+        clearInterval(check);
+        resolve(); // resolve anyway — caller checks state.ytReady
+      }
+    }, 100);
+  });
 }
 
 // ── DEEZER PREVIEW PLAYER (30s fallback) ───────────────────
