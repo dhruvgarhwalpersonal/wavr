@@ -61,10 +61,26 @@ async function itunesFetch(params) {
 }
 
 async function itunesSearchArtist(artistName) {
-  const qs = new URLSearchParams({ term: artistName, media: 'music', entity: 'musicArtist', limit: 1 }).toString();
+  // musicArtist entity has no artwork — use song search to get album art as artist image
+  const qs = new URLSearchParams({
+    term: artistName,
+    media: 'music',
+    entity: 'song',
+    limit: 1,
+    attribute: 'artistTerm',
+  }).toString();
   const res = await fetch(`https://itunes.apple.com/search?${qs}`);
   if (!res.ok) throw new Error('iTunes artist error');
-  return res.json();
+  const data = await res.json();
+  const song = data.results?.[0];
+  if (!song) return { results: [] };
+  // Return a fake artist object with the album artwork as the image
+  return {
+    results: [{
+      artistName: song.artistName,
+      artworkUrl100: (song.artworkUrl100 || '').replace('100x100bb', '600x600bb'),
+    }]
+  };
 }
 
 async function itunesTopTracks(artistName) {
@@ -635,9 +651,7 @@ async function loadArtists() {
     let img = '';
     if (res.status === 'fulfilled') {
       const artist = res.value.results?.[0];
-      // iTunes returns artworkUrl100 on song results; for artists use their artworkUrl60 or artworkUrl100
-      img = artist?.artworkUrl100 || artist?.artworkUrl60 || '';
-      if (img) img = img.replace('100x100bb', '300x300bb').replace('60x60bb', '300x300bb');
+      img = artist?.artworkUrl100 || '';
     }
     return `
       <div class="artist-card" onclick="playArtistByName('${escHtml(name)}')">
