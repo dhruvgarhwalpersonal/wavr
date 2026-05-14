@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NETHER — Sign In</title>
+  <link rel="stylesheet" href="login.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet" />
+</head>
+<body>
+
+<div class="auth-bg">
+  <div class="auth-bg-orb orb1"></div>
+  <div class="auth-bg-orb orb2"></div>
+  <div class="auth-bg-orb orb3"></div>
+</div>
+
+<div class="auth-wrap">
+
+  <!-- Logo -->
+  <div class="auth-logo">N<span>ETHER</span></div>
+  <p class="auth-tagline">Your music. Your data. Your universe.</p>
+
+  <!-- Card -->
+  <div class="auth-card">
+
+    <!-- Tabs -->
+    <div class="auth-tabs">
+      <button class="auth-tab active" id="tab-login" onclick="switchTab('login')">Sign In</button>
+      <button class="auth-tab" id="tab-register" onclick="switchTab('register')">Create Account</button>
+    </div>
+
+    <!-- ── SIGN IN FORM ── -->
+    <div id="form-login" class="auth-form">
+      <div class="form-group">
+        <label>Email</label>
+        <input type="email" id="login-email" placeholder="you@example.com" autocomplete="email" />
+      </div>
+      <div class="form-group">
+        <label>Password</label>
+        <div class="input-wrap">
+          <input type="password" id="login-password" placeholder="••••••••" autocomplete="current-password" />
+          <button class="toggle-pw" onclick="togglePw('login-password', this)">👁</button>
+        </div>
+      </div>
+      <div class="form-row">
+        <a class="forgot-link" onclick="switchTab('forgot')">Forgot password?</a>
+      </div>
+      <button class="btn-primary" id="btn-login" onclick="emailSignIn()">Sign In</button>
+
+      <div class="divider"><span>or</span></div>
+
+      <button class="btn-google" onclick="googleSignIn()">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 48 48">
+          <path fill="#4285F4" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.08 17.74 9.5 24 9.5z"/>
+          <path fill="#34A853" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+          <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+          <path fill="#EA4335" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-3.59-13.46-8.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+        </svg>
+        Continue with Google
+      </button>
+    </div>
+
+    <!-- ── REGISTER FORM ── -->
+    <div id="form-register" class="auth-form hidden">
+      <div class="form-group">
+        <label>Full Name</label>
+        <input type="text" id="reg-name" placeholder="Dhruv" autocomplete="name" />
+      </div>
+      <div class="form-group">
+        <label>Email</label>
+        <input type="email" id="reg-email" placeholder="you@example.com" autocomplete="email" />
+      </div>
+      <div class="form-group">
+        <label>Password</label>
+        <div class="input-wrap">
+          <input type="password" id="reg-password" placeholder="Min 6 characters" autocomplete="new-password" />
+          <button class="toggle-pw" onclick="togglePw('reg-password', this)">👁</button>
+        </div>
+        <div class="pw-strength" id="pw-strength"></div>
+      </div>
+      <div class="form-group">
+        <label>Confirm Password</label>
+        <div class="input-wrap">
+          <input type="password" id="reg-confirm" placeholder="••••••••" autocomplete="new-password" />
+          <button class="toggle-pw" onclick="togglePw('reg-confirm', this)">👁</button>
+        </div>
+      </div>
+      <button class="btn-primary" id="btn-register" onclick="emailRegister()">Create Account</button>
+
+      <div class="divider"><span>or</span></div>
+
+      <button class="btn-google" onclick="googleSignIn()">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 48 48">
+          <path fill="#4285F4" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.08 17.74 9.5 24 9.5z"/>
+          <path fill="#34A853" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+          <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+          <path fill="#EA4335" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-3.59-13.46-8.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+        </svg>
+        Continue with Google
+      </button>
+    </div>
+
+    <!-- ── FORGOT PASSWORD FORM ── -->
+    <div id="form-forgot" class="auth-form hidden">
+      <p class="forgot-desc">Enter your email and we'll send you a reset link.</p>
+      <div class="form-group">
+        <label>Email</label>
+        <input type="email" id="forgot-email" placeholder="you@example.com" autocomplete="email" />
+      </div>
+      <button class="btn-primary" id="btn-forgot" onclick="sendReset()">Send Reset Link</button>
+      <button class="btn-ghost" onclick="switchTab('login')">← Back to Sign In</button>
+    </div>
+
+    <!-- Error / success message -->
+    <div id="auth-msg" class="auth-msg hidden"></div>
+
+  </div>
+
+</div>
+
+<script src="config.js"></script>
+<script type="module">
+  import { auth, db } from "./firebase.js";
+  import {
+    GoogleAuthProvider,
+    signInWithPopup,
+    signInWithEmailAndPassword,
+    createUserWithEmailAndPassword,
+    sendPasswordResetEmail,
+    updateProfile,
+    onAuthStateChanged,
+  } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+  import {
+    doc, getDoc, setDoc, serverTimestamp,
+  } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+  // If already signed in → go to app
+  onAuthStateChanged(auth, user => {
+    if (user) window.location.replace("index.html");
+  });
+
+  const provider = new GoogleAuthProvider();
+  provider.setCustomParameters({ prompt: "select_account" });
+
+  async function ensureProfile(user, displayName) {
+    const ref  = doc(db, "users", user.uid, "profile", "main");
+    const snap = await getDoc(ref);
+    if (!snap.exists()) {
+      await Promise.all([
+        setDoc(doc(db, "users", user.uid, "profile", "main"), {
+          uid: user.uid,
+          name: displayName || user.displayName || "NETHER User",
+          email: user.email,
+          photo: user.photoURL || "",
+          joinedAt: serverTimestamp(),
+        }),
+        setDoc(doc(db, "users", user.uid, "prefs", "main"), {
+          theme: "dark", defaultMood: null, language: "en", updatedAt: serverTimestamp(),
+        }),
+        setDoc(doc(db, "users", user.uid, "stats", "main"), {
+          totalPlays: 0, totalListenSec: 0, streakDays: 0, lastActiveDate: serverTimestamp(),
+        }),
+      ]);
+    }
+  }
+
+  // ── GOOGLE ──
+  window.googleSignIn = async () => {
+    setLoading(true);
+    try {
+      const result = await signInWithPopup(auth, provider);
+      await ensureProfile(result.user);
+      window.location.replace("index.html");
+    } catch (err) {
+      if (err.code !== "auth/popup-closed-by-user") showMsg(friendlyError(err.code), "error");
+    } finally { setLoading(false); }
+  };
+
+  // ── EMAIL SIGN IN ──
+  window.emailSignIn = async () => {
+    const email = document.getElementById("login-email").value.trim();
+    const pw    = document.getElementById("login-password").value;
+    if (!email || !pw) { showMsg("Please fill in all fields.", "error"); return; }
+    setLoading(true);
+    try {
+      await signInWithEmailAndPassword(auth, email, pw);
+      window.location.replace("index.html");
+    } catch (err) {
+      showMsg(friendlyError(err.code), "error");
+    } finally { setLoading(false); }
+  };
+
+  // ── EMAIL REGISTER ──
+  window.emailRegister = async () => {
+    const name  = document.getElementById("reg-name").value.trim();
+    const email = document.getElementById("reg-email").value.trim();
+    const pw    = document.getElementById("reg-password").value;
+    const conf  = document.getElementById("reg-confirm").value;
+    if (!name || !email || !pw) { showMsg("Please fill in all fields.", "error"); return; }
+    if (pw !== conf) { showMsg("Passwords don't match.", "error"); return; }
+    if (pw.length < 6) { showMsg("Password must be at least 6 characters.", "error"); return; }
+    setLoading(true);
+    try {
+      const result = await createUserWithEmailAndPassword(auth, email, pw);
+      await updateProfile(result.user, { displayName: name });
+      await ensureProfile(result.user, name);
+      window.location.replace("index.html");
+    } catch (err) {
+      showMsg(friendlyError(err.code), "error");
+    } finally { setLoading(false); }
+  };
+
+  // ── FORGOT PASSWORD ──
+  window.sendReset = async () => {
+    const email = document.getElementById("forgot-email").value.trim();
+    if (!email) { showMsg("Enter your email first.", "error"); return; }
+    setLoading(true);
+    try {
+      await sendPasswordResetEmail(auth, email);
+      showMsg("Reset link sent! Check your inbox.", "success");
+    } catch (err) {
+      showMsg(friendlyError(err.code), "error");
+    } finally { setLoading(false); }
+  };
+
+  // ── PASSWORD STRENGTH ──
+  document.getElementById("reg-password")?.addEventListener("input", e => {
+    const val = e.target.value;
+    const bar = document.getElementById("pw-strength");
+    if (!val) { bar.innerHTML = ""; return; }
+    let score = 0;
+    if (val.length >= 6) score++;
+    if (val.length >= 10) score++;
+    if (/[A-Z]/.test(val)) score++;
+    if (/[0-9]/.test(val)) score++;
+    if (/[^A-Za-z0-9]/.test(val)) score++;
+    const labels = ["", "Weak", "Fair", "Good", "Strong", "Very Strong"];
+    const colors = ["", "#ff4d4d", "#ff9f43", "#ffd96a", "#00b894", "#7c6aff"];
+    bar.innerHTML = `<div class="pw-bar" style="width:${score*20}%;background:${colors[score]}"></div><span style="color:${colors[score]}">${labels[score]}</span>`;
+  });
+
+  // ── HELPERS ──
+  function showMsg(msg, type) {
+    const el = document.getElementById("auth-msg");
+    el.textContent = msg;
+    el.className = `auth-msg ${type}`;
+  }
+
+  function setLoading(on) {
+    document.querySelectorAll(".btn-primary, .btn-google").forEach(b => {
+      b.disabled = on;
+      b.style.opacity = on ? "0.6" : "1";
+    });
+  }
+
+  function friendlyError(code) {
+    const map = {
+      "auth/user-not-found":       "No account with that email.",
+      "auth/wrong-password":       "Incorrect password.",
+      "auth/email-already-in-use": "Email already registered. Sign in instead.",
+      "auth/invalid-email":        "Invalid email address.",
+      "auth/weak-password":        "Password too weak.",
+      "auth/too-many-requests":    "Too many attempts. Try again later.",
+      "auth/network-request-failed": "Network error. Check your connection.",
+    };
+    return map[code] || "Something went wrong. Try again.";
+  }
+</script>
+
+<script>
+  // Tab switching
+  function switchTab(tab) {
+    ["login", "register", "forgot"].forEach(t => {
+      document.getElementById(`form-${t}`).classList.toggle("hidden", t !== tab);
+      const btn = document.getElementById(`tab-${t}`);
+      if (btn) btn.classList.toggle("active", t === tab);
+    });
+    document.getElementById("auth-msg").className = "auth-msg hidden";
+  }
+
+  // Password visibility toggle
+  function togglePw(id, btn) {
+    const inp = document.getElementById(id);
+    inp.type = inp.type === "password" ? "text" : "password";
+    btn.textContent = inp.type === "password" ? "👁" : "🙈";
+  }
+
+  // Enter key support
+  document.addEventListener("keydown", e => {
+    if (e.key !== "Enter") return;
+    const active = document.querySelector(".auth-form:not(.hidden)").id;
+    if (active === "form-login")    window.emailSignIn?.();
+    if (active === "form-register") window.emailRegister?.();
+    if (active === "form-forgot")   window.sendReset?.();
+  });
+</script>
+
+</body>
+</html>

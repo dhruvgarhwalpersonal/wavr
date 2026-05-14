@@ -1,6 +1,6 @@
 /* =========================================================
-   WAVR — app.js
-   Deezer (no key) · Last.fm · YouTube IFrame
+   NETHER — app.js
+   Deezer (no key) · iTunes · YouTube IFrame
    Own Vercel proxy — no rate limits, full control
    ========================================================= */
 
@@ -17,7 +17,6 @@ const state = {
 };
 
 // ── YOUR OWN PROXY (Vercel) ─────────────────────────────────
-// Relative path — works automatically on any Vercel deployment
 const PROXY = '/api/proxy?url=';
 
 function proxyUrl(rawUrl) {
@@ -40,10 +39,6 @@ async function getDeezerNewReleases() {
   return deezerFetch('/chart/0/albums?limit=12');
 }
 
-async function getDeezerArtist(artistId) {
-  return deezerFetch(`/artist/${artistId}`);
-}
-
 async function getDeezerArtistTopTracks(artistId) {
   return deezerFetch(`/artist/${artistId}/top?limit=10`);
 }
@@ -58,29 +53,6 @@ async function itunesFetch(params) {
   const res = await fetch(`https://itunes.apple.com/search?${qs}`);
   if (!res.ok) throw new Error('iTunes error');
   return res.json();
-}
-
-async function itunesSearchArtist(artistName) {
-  // musicArtist entity has no artwork — use song search to get album art as artist image
-  const qs = new URLSearchParams({
-    term: artistName,
-    media: 'music',
-    entity: 'song',
-    limit: 1,
-    attribute: 'artistTerm',
-  }).toString();
-  const res = await fetch(`https://itunes.apple.com/search?${qs}`);
-  if (!res.ok) throw new Error('iTunes artist error');
-  const data = await res.json();
-  const song = data.results?.[0];
-  if (!song) return { results: [] };
-  // Return a fake artist object with the album artwork as the image
-  return {
-    results: [{
-      artistName: song.artistName,
-      artworkUrl100: (song.artworkUrl100 || '').replace('100x100bb', '600x600bb'),
-    }]
-  };
 }
 
 async function itunesTopTracks(artistName) {
@@ -104,22 +76,17 @@ function normaliseItunes(t) {
   };
 }
 
-// ── DEEZER REPLACEMENTS FOR LAST.FM ───────────────────────
-
-// Trending in India — Deezer India chart (genre 519 = Bollywood/Indian)
+// ── DEEZER CHART / MOOD ────────────────────────────────────
 async function getTrendingIndia() {
-  // Deezer chart for India: top tracks
   const data = await deezerFetch('/chart/0/tracks?limit=20');
   return (data.data || []).map(normaliseDeezer);
 }
 
-// Similar tracks via Deezer radio (seed track)
 async function getDeezerSimilarTracks(trackId) {
   const data = await deezerFetch(`/track/${trackId}/radio?limit=20`);
   return (data.data || []).map(normaliseDeezer);
 }
 
-// Mood/tag tracks via Deezer genre search
 const MOOD_DEEZER_QUERIES = {
   happy:  'feel good happy hits',
   sad:    'sad heartbreak songs',
@@ -135,18 +102,7 @@ async function getDeezerMoodTracks(mood) {
   return (data.data || []).map(normaliseDeezer);
 }
 
-// Search — Deezer only now (no Last.fm fallback needed)
-async function searchLastfm(query, limit = 10) {
-  // Replaced with extra Deezer search for more results
-  const data = await searchDeezer(query, limit);
-  return (data.data || []).map(t => ({
-    ...normaliseDeezer(t),
-    _score: searchRelevance(query, t.title || t.name || ''),
-  }));
-}
-
 // ── YOUTUBE ────────────────────────────────────────────────
-// NOTE: #yt-frame must NOT be display:none — that breaks the IFrame API.
 window.onYouTubeIframeAPIReady = () => {
   state.ytPlayer = new YT.Player('yt-frame', {
     height: '1',
@@ -165,13 +121,18 @@ function onYTStateChange(event) {
     state.isPlaying = true;
     updatePlayBtn(true);
     startProgressTracking();
-  } else if (
-    event.data === YT.PlayerState.PAUSED ||
-    event.data === YT.PlayerState.ENDED
-  ) {
+    if (window._netherTrack) {
+      window.netherTrack?.('play', { title: window._netherTrack.name, artist: window._netherTrack.artist });
+    }
+  } else if (event.data === YT.PlayerState.PAUSED) {
     state.isPlaying = false;
     updatePlayBtn(false);
-    if (event.data === YT.PlayerState.ENDED) playNext();
+    window.netherTrack?.('pause', {});
+  } else if (event.data === YT.PlayerState.ENDED) {
+    state.isPlaying = false;
+    updatePlayBtn(false);
+    window.netherTrack?.('complete', { title: window._netherTrack?.name });
+    playNext();
   }
 }
 
@@ -198,41 +159,18 @@ function normaliseDeezer(t) {
   };
 }
 
-function normaliseLastfm(t) {
-  return {
-    id: t.mbid || `lfm-${t.name}-${t.artist?.name || t.artist}`,
-    name: t.name,
-    artist: typeof t.artist === 'string' ? t.artist : t.artist?.name || 'Unknown',
-    cover: t.image?.find(i => i.size === 'large')?.['#text'] || '',
-    duration: parseInt(t.duration, 10) || 0,
-    source: 'lastfm',
-  };
-}
-
-// ── SEARCH RELEVANCE SCORING ───────────────────────────────
-// Stops "Parki Na" from matching "Parei Na Contramão" etc.
-// Returns 0.0–1.0: fraction of query words found in track name.
+// ── SEARCH RELEVANCE ───────────────────────────────────────
 function searchRelevance(query, trackName) {
   const clean = s => s.toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
   const qWords = clean(query).split(/\s+/).filter(w => w.length >= 2);
   const target = clean(trackName);
   if (!qWords.length) return 0;
-
   let matched = 0;
   for (const word of qWords) {
-    if (new RegExp(`\\b${word}\\b`).test(target)) {
-      matched += 1;        // exact word match
-    } else if (target.includes(word)) {
-      matched += 0.5;      // partial match
-    }
+    if (new RegExp(`\\b${word}\\b`).test(target)) matched += 1;
+    else if (target.includes(word)) matched += 0.5;
   }
   return matched / qWords.length;
-}
-
-// ── PASSTHROUGH (Deezer tracks already normalised) ─────────
-async function enrichLastfmWithDeezer(tracks) {
-  // Tracks are already Deezer-normalised, just return them
-  return tracks.filter(Boolean);
 }
 
 // ── RENDER HELPERS ─────────────────────────────────────────
@@ -290,6 +228,7 @@ function handleListPlay(idx) {
 async function playTrack(track) {
   if (!track) return;
   state.currentTrack = track;
+  window._netherTrack = track;
 
   const fallbackSrc = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="52" height="52"><rect fill="%23141826" width="52" height="52"/><text x="50%25" y="55%25" font-size="22" text-anchor="middle" dominant-baseline="middle" fill="%234a5070">♪</text></svg>';
   document.getElementById('player-cover').src = track.cover || fallbackSrc;
@@ -298,6 +237,7 @@ async function playTrack(track) {
   document.querySelectorAll('.now-playing').forEach(el => el.classList.remove('now-playing'));
 
   showToast(`Loading "${track.name}"…`);
+  window.netherTrack?.('search_pick', { title: track.name, artist: track.artist });
 
   try {
     const queries = [
@@ -363,18 +303,25 @@ function updatePlayBtn(playing) {
 
 function togglePlay() {
   if (!state.ytPlayer || !state.ytReady) return;
-  state.isPlaying ? state.ytPlayer.pauseVideo() : state.ytPlayer.playVideo();
+  if (state.isPlaying) {
+    state.ytPlayer.pauseVideo();
+  } else {
+    state.ytPlayer.playVideo();
+    window.netherTrack?.('resume', {});
+  }
 }
 
 function playNext() {
   if (!state.queue.length) return;
   state.queueIndex = (state.queueIndex + 1) % state.queue.length;
+  window.netherTrack?.('skip', { dir: 'next' });
   playTrack(state.queue[state.queueIndex]);
 }
 
 function playPrev() {
   if (!state.queue.length) return;
   state.queueIndex = (state.queueIndex - 1 + state.queue.length) % state.queue.length;
+  window.netherTrack?.('skip', { dir: 'prev' });
   playTrack(state.queue[state.queueIndex]);
 }
 
@@ -384,19 +331,15 @@ function setQueue(tracks, startIndex = 0) {
 }
 
 // ── SEARCH ─────────────────────────────────────────────────
-// 1. Deezer results scored by word-overlap with query
-// 2. If good Deezer matches < 3, pull Last.fm results too
-// 3. Final list sorted best-match first
-// This prevents "Parki Na" being hijacked by "Parei Na Contramão"
 async function handleSearch(query) {
   const dropdown = document.getElementById('search-results-dropdown');
   if (!query.trim()) { dropdown.classList.remove('open'); return; }
 
   dropdown.innerHTML = '<div style="padding:14px 16px;color:var(--text3);font-size:.85rem">Searching…</div>';
   dropdown.classList.add('open');
+  window.netherTrack?.('search_type', { q: query });
 
   try {
-    // 1. Deezer
     let scoredTracks = [];
     try {
       const data = await searchDeezer(query, 12);
@@ -406,7 +349,6 @@ async function handleSearch(query) {
       });
     } catch {}
 
-    // 2. iTunes fallback if Deezer has fewer than 3 good matches
     const goodDeezer = scoredTracks.filter(t => t._score >= 0.4);
     if (goodDeezer.length < 3) {
       try {
@@ -421,7 +363,6 @@ async function handleSearch(query) {
       } catch {}
     }
 
-    // 3. Sort by relevance
     scoredTracks.sort((a, b) => b._score - a._score);
 
     if (!scoredTracks.length) {
@@ -537,7 +478,6 @@ window.handleNewRelPlay = async (idx) => {
 // ── INTELLIGENT RECOMMENDATIONS ────────────────────────────
 async function getSmartRecommendations(artistName, trackName) {
   try {
-    // Find the track on Deezer to get its ID for radio
     const data = await searchDeezer(`${trackName} ${artistName}`, 1);
     const first = data.data?.[0];
     if (first) {
@@ -545,20 +485,15 @@ async function getSmartRecommendations(artistName, trackName) {
       if (similar.length >= 4) return similar;
     }
   } catch {}
-
-  // Fallback: search by artist
   try {
     const data = await searchDeezer(artistName, 10);
     const tracks = (data.data || []).map(normaliseDeezer);
     if (tracks.length >= 4) return tracks;
   } catch {}
-
-  // Last fallback: Deezer global chart
   try {
     const data = await deezerFetch('/chart/0/tracks?limit=12');
     return (data.data || []).map(normaliseDeezer);
   } catch {}
-
   return [];
 }
 
@@ -579,7 +514,6 @@ async function loadRecommendations() {
   const container = document.getElementById('recommended-row');
   container.innerHTML = renderSkeletonCards(8);
   try {
-    // Use Deezer chart with a random genre flavour for variety
     const queries = ['bollywood hits', 'punjabi pop', 'hindi romantic', 'indian pop', 'desi beats'];
     const q = queries[Math.floor(Math.random() * queries.length)];
     const data = await searchDeezer(q, 12);
@@ -619,6 +553,7 @@ window.handleRecPlay = (idx) => {
 // ── MOOD ───────────────────────────────────────────────────
 async function playMood(mood) {
   showToast(`Loading ${mood} vibes…`);
+  window.netherTrack?.('mood_pick', { mood });
   try {
     const tracks = await getDeezerMoodTracks(mood);
     if (!tracks.length) { showToast('No tracks for this mood'); return; }
@@ -631,19 +566,12 @@ async function playMood(mood) {
 
 // ── FEATURED ARTISTS ───────────────────────────────────────
 const FEATURED_ARTISTS = [
-  'Arijit Singh',
-  'A.R. Rahman',
-  'Diljit Dosanjh',
-  'Pritam',
-  'Eminem',
-  'Taylor Swift',
-  'The Weeknd',
-  'Coldplay',
+  'Arijit Singh', 'A.R. Rahman', 'Diljit Dosanjh', 'Pritam',
+  'Eminem', 'Taylor Swift', 'The Weeknd', 'Coldplay',
 ];
 
 const FANART_KEY = '3bccf3f4614b0b1a2f4ce1bd74f3d6c1';
 
-// Step 1: Deezer dynamic artist search → real artist photo
 async function getDeezerArtistImage(name) {
   const data = await deezerFetch(`/search/artist?q=${encodeURIComponent(name)}&limit=1`);
   const artist = data.data?.[0];
@@ -653,19 +581,15 @@ async function getDeezerArtistImage(name) {
   return null;
 }
 
-// Step 2: MusicBrainz → get MBID, then Fanart.tv → real artist photo
 async function getFanartImage(name) {
-  // Get MBID from MusicBrainz
   const mbRes = await fetch(
     `https://musicbrainz.org/ws/2/artist/?query=artist:${encodeURIComponent(name)}&limit=1&fmt=json`,
-    { headers: { 'User-Agent': 'WAVR/1.0 (music app)' } }
+    { headers: { 'User-Agent': 'NETHER/1.0 (music app)' } }
   );
   if (!mbRes.ok) return null;
   const mbData = await mbRes.json();
   const mbid = mbData.artists?.[0]?.id;
   if (!mbid) return null;
-
-  // Get image from Fanart.tv
   const ftRes = await fetch(`https://webservice.fanart.tv/v3/music/${mbid}?api_key=${FANART_KEY}`);
   if (!ftRes.ok) return null;
   const ftData = await ftRes.json();
@@ -673,7 +597,6 @@ async function getFanartImage(name) {
   return img || null;
 }
 
-// Step 3: iTunes album art as last resort
 async function getItunesArtistImage(name) {
   const qs = new URLSearchParams({ term: name, media: 'music', entity: 'song', limit: 1, attribute: 'artistTerm' }).toString();
   const res = await fetch(`https://itunes.apple.com/search?${qs}`);
@@ -683,26 +606,15 @@ async function getItunesArtistImage(name) {
   return song?.artworkUrl100?.replace('100x100bb', '600x600bb') || null;
 }
 
-// Full fallback chain for one artist
 async function getArtistImage(name) {
-  try {
-    const deezer = await getDeezerArtistImage(name);
-    if (deezer?.img) return { img: deezer.img, deezerId: deezer.id };
-  } catch {}
-  try {
-    const fanart = await getFanartImage(name);
-    if (fanart) return { img: fanart };
-  } catch {}
-  try {
-    const itunes = await getItunesArtistImage(name);
-    if (itunes) return { img: itunes };
-  } catch {}
+  try { const d = await getDeezerArtistImage(name); if (d?.img) return { img: d.img, deezerId: d.id }; } catch {}
+  try { const f = await getFanartImage(name); if (f) return { img: f }; } catch {}
+  try { const i = await getItunesArtistImage(name); if (i) return { img: i }; } catch {}
   return { img: '' };
 }
 
 async function loadArtists() {
   const container = document.getElementById('artists-row');
-  // Render skeletons first
   container.innerHTML = FEATURED_ARTISTS.map(name => `
     <div class="artist-card" id="artist-card-${escHtml(name.replace(/\s/g,'-'))}" onclick="playArtistByName('${escHtml(name)}')">
       <div class="artist-avatar skeleton"></div>
@@ -710,7 +622,6 @@ async function loadArtists() {
     </div>
   `).join('');
 
-  // Load each artist image independently so fast ones show immediately
   FEATURED_ARTISTS.forEach(async name => {
     const cardId = `artist-card-${name.replace(/\s/g, '-')}`;
     const card = document.getElementById(cardId);
@@ -724,7 +635,7 @@ async function loadArtists() {
         imgEl.src = img;
         imgEl.alt = name;
         imgEl.loading = 'lazy';
-        imgEl.onerror = () => {}; // stay as skeleton on error
+        imgEl.onerror = () => {};
         avatarEl.replaceWith(imgEl);
       }
       if (deezerId) {
@@ -737,7 +648,6 @@ async function loadArtists() {
 async function playArtistByName(name) {
   showToast(`Loading ${name} top tracks…`);
   try {
-    // Try Deezer first
     const data = await deezerFetch(`/search/artist?q=${encodeURIComponent(name)}&limit=1`);
     const artist = data.data?.[0];
     if (artist?.id) {
@@ -746,7 +656,6 @@ async function playArtistByName(name) {
       if (normalised.length) { setQueue(normalised, 0); playTrack(normalised[0]); return; }
     }
   } catch {}
-  // Fallback to iTunes
   try {
     const tracks = await itunesTopTracks(name);
     if (!tracks.length) { showToast('No tracks found'); return; }
@@ -779,6 +688,22 @@ function showToast(msg) {
   clearTimeout(toastTimeout);
   toastTimeout = setTimeout(() => toast.classList.remove('show'), 2800);
 }
+window.showToast = showToast;
+
+// ── AUTH UI (render avatar in topbar) ──────────────────────
+function renderTopbarUser(user) {
+  const btn = document.getElementById('nether-auth-btn');
+  if (!btn) return;
+  if (user) {
+    btn.innerHTML = `
+      <img src="${user.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.displayName||'U')}&background=7c6aff&color=fff&size=64`}"
+        alt="${user.displayName || 'Profile'}" class="auth-avatar" />
+      <span class="auth-name">${(user.displayName || 'You').split(' ')[0]}</span>
+    `;
+    btn.onclick = () => { window.location.href = 'profile.html'; };
+    btn.title = 'View profile';
+  }
+}
 
 // ── INIT ───────────────────────────────────────────────────
 async function init() {
@@ -801,6 +726,7 @@ async function init() {
   document.getElementById('progress-bar').addEventListener('input', e => {
     if (!state.ytPlayer || !state.ytReady) return;
     const dur = state.ytPlayer.getDuration?.() || 0;
+    window.netherTrack?.('seek', { pct: e.target.value });
     state.ytPlayer.seekTo((e.target.value / 100) * dur, true);
   });
 
@@ -815,5 +741,22 @@ async function init() {
     loadArtists(),
   ]);
 }
+
+// ── BOOT — wait for auth ────────────────────────────────────
+// auth.js fires "nether:authReady" once Firebase resolves
+window.addEventListener('nether:authReady', (e) => {
+  const user = e.detail?.user;
+  if (!user) {
+    // Not signed in → redirect to login
+    window.location.replace('login.html');
+    return;
+  }
+  renderTopbarUser(user);
+
+  // Expose tracker.js track() as window.netherTrack
+  // tracker.js sets window._netherTrackFn after it loads
+  window.netherTrack = window._netherTrackFn || null;
+  window._netherStartSession?.();
+});
 
 document.addEventListener('DOMContentLoaded', init);

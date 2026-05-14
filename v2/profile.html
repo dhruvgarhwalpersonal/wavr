@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NETHER — Profile</title>
+  <link rel="stylesheet" href="profile.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet" />
+</head>
+<body>
+
+<!-- ── TOPBAR ── -->
+<header id="topbar">
+  <a class="logo" href="index.html">N<span>ETHER</span></a>
+  <div class="topbar-right">
+    <a class="back-btn" href="index.html">← Back to App</a>
+    <button class="btn-signout" id="btn-signout">Sign Out</button>
+  </div>
+</header>
+
+<!-- ── LOADING SCREEN ── -->
+<div id="loading-screen">
+  <div class="loading-spinner"></div>
+  <p>Loading your profile…</p>
+</div>
+
+<!-- ── MAIN PROFILE (hidden until auth resolved) ── -->
+<main id="profile-main" class="hidden">
+
+  <!-- Hero -->
+  <section class="profile-hero">
+    <div class="hero-bg"></div>
+    <div class="hero-content">
+      <div class="avatar-wrap">
+        <img id="profile-photo" src="" alt="Avatar" class="profile-avatar" />
+        <div class="avatar-ring"></div>
+      </div>
+      <div class="hero-info">
+        <h1 id="profile-name" class="profile-name">—</h1>
+        <p id="profile-email" class="profile-email">—</p>
+        <p id="profile-joined" class="profile-joined">Member since —</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Stats bar -->
+  <section class="stats-bar">
+    <div class="stat-item">
+      <span class="stat-value" id="stat-plays">—</span>
+      <span class="stat-label">Total Plays</span>
+    </div>
+    <div class="stat-divider"></div>
+    <div class="stat-item">
+      <span class="stat-value" id="stat-time">—</span>
+      <span class="stat-label">Hours Listened</span>
+    </div>
+    <div class="stat-divider"></div>
+    <div class="stat-item">
+      <span class="stat-value" id="stat-streak">—</span>
+      <span class="stat-label">Day Streak</span>
+    </div>
+    <div class="stat-divider"></div>
+    <div class="stat-item">
+      <span class="stat-value" id="stat-sessions">—</span>
+      <span class="stat-label">Sessions</span>
+    </div>
+  </section>
+
+  <!-- Content grid -->
+  <div class="profile-grid">
+
+    <!-- Recently Played -->
+    <section class="profile-section">
+      <div class="section-header">
+        <span class="section-dot dot-pink"></span>
+        <h2>Recently Played</h2>
+      </div>
+      <div id="history-list" class="history-list">
+        <div class="empty-state">No history yet — play something!</div>
+      </div>
+    </section>
+
+    <!-- Liked Songs -->
+    <section class="profile-section">
+      <div class="section-header">
+        <span class="section-dot dot-purple"></span>
+        <h2>Liked Songs</h2>
+      </div>
+      <div id="liked-list" class="history-list">
+        <div class="empty-state">No liked songs yet.</div>
+      </div>
+    </section>
+
+    <!-- Preferences -->
+    <section class="profile-section prefs-section">
+      <div class="section-header">
+        <span class="section-dot dot-green"></span>
+        <h2>Preferences</h2>
+      </div>
+      <div class="prefs-grid">
+        <div class="pref-item">
+          <span class="pref-label">Theme</span>
+          <select id="pref-theme" class="pref-select">
+            <option value="dark">Dark</option>
+            <option value="light">Light (coming soon)</option>
+          </select>
+        </div>
+        <div class="pref-item">
+          <span class="pref-label">Default Mood</span>
+          <select id="pref-mood" class="pref-select">
+            <option value="">None</option>
+            <option value="happy">😄 Happy</option>
+            <option value="sad">🌧 Sad</option>
+            <option value="party">🎉 Party</option>
+            <option value="chill">🌊 Chill</option>
+            <option value="focus">🎯 Focus</option>
+            <option value="energy">⚡ Energy</option>
+          </select>
+        </div>
+        <div class="pref-item">
+          <span class="pref-label">Language</span>
+          <select id="pref-language" class="pref-select">
+            <option value="en">English</option>
+            <option value="hi">Hindi</option>
+          </select>
+        </div>
+      </div>
+      <button class="btn-save" id="btn-save-prefs">Save Preferences</button>
+      <div id="prefs-msg" class="prefs-msg hidden"></div>
+    </section>
+
+    <!-- Danger zone -->
+    <section class="profile-section danger-section">
+      <div class="section-header">
+        <span class="section-dot dot-red"></span>
+        <h2>Account</h2>
+      </div>
+      <div class="danger-actions">
+        <button class="btn-danger-outline" id="btn-clear-history">Clear Play History</button>
+        <button class="btn-danger" id="btn-delete-account">Delete Account</button>
+      </div>
+      <p class="danger-note">Deleting your account removes all your data from NETHER permanently.</p>
+    </section>
+
+  </div>
+</main>
+
+<!-- ── CONFIRM MODAL ── -->
+<div id="confirm-modal" class="modal-overlay hidden">
+  <div class="modal-card">
+    <h3 id="modal-title">Are you sure?</h3>
+    <p id="modal-body">This action cannot be undone.</p>
+    <div class="modal-actions">
+      <button class="btn-ghost" id="modal-cancel">Cancel</button>
+      <button class="btn-danger" id="modal-confirm">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div id="toast"></div>
+
+<script src="config.js"></script>
+<script type="module">
+  import { auth, db } from "./firebase.js";
+  import {
+    onAuthStateChanged,
+    signOut,
+    deleteUser,
+  } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+  import {
+    doc,
+    getDoc,
+    getDocs,
+    collection,
+    updateDoc,
+    deleteDoc,
+    serverTimestamp,
+    query,
+    orderBy,
+    limit,
+  } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+  let currentUser = null;
+
+  // ── AUTH GUARD ──
+  onAuthStateChanged(auth, async (user) => {
+    if (!user) {
+      window.location.replace("login.html");
+      return;
+    }
+    currentUser = user;
+    document.getElementById("loading-screen").classList.add("hidden");
+    document.getElementById("profile-main").classList.remove("hidden");
+    await loadProfile(user);
+    await loadStats(user);
+    await loadHistory(user);
+    await loadLiked(user);
+    await loadPrefs(user);
+  });
+
+  // ── LOAD PROFILE ──
+  async function loadProfile(user) {
+    try {
+      const snap = await getDoc(doc(db, "users", user.uid, "profile", "main"));
+      const data = snap.exists() ? snap.data() : {};
+
+      const name  = data.name  || user.displayName || "NETHER User";
+      const email = data.email || user.email        || "";
+      const photo = data.photo || user.photoURL     || "";
+
+      document.getElementById("profile-name").textContent  = name;
+      document.getElementById("profile-email").textContent = email;
+
+      if (photo) {
+        document.getElementById("profile-photo").src = photo;
+      } else {
+        document.getElementById("profile-photo").src =
+          `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=7c6aff&color=fff&size=120`;
+      }
+
+      if (data.joinedAt?.toDate) {
+        const d = data.joinedAt.toDate();
+        document.getElementById("profile-joined").textContent =
+          "Member since " + d.toLocaleDateString("en-IN", { month: "long", year: "numeric" });
+      }
+    } catch (e) { console.error("loadProfile:", e); }
+  }
+
+  // ── LOAD STATS ──
+  async function loadStats(user) {
+    try {
+      const snap = await getDoc(doc(db, "users", user.uid, "stats", "main"));
+      const data = snap.exists() ? snap.data() : {};
+
+      const plays   = data.totalPlays     || 0;
+      const secs    = data.totalListenSec || 0;
+      const streak  = data.streakDays     || 0;
+      const hours   = (secs / 3600).toFixed(1);
+
+      document.getElementById("stat-plays").textContent   = plays.toLocaleString();
+      document.getElementById("stat-time").textContent    = hours;
+      document.getElementById("stat-streak").textContent  = streak;
+
+      // Count sessions from events
+      const eventsCol = collection(db, "users", user.uid, "events");
+      const evSnap    = await getDocs(eventsCol);
+      let sessionCount = 0;
+      evSnap.forEach(d => {
+        const ev = d.data().events || [];
+        sessionCount += ev.filter(e => e.t === "session_start").length;
+      });
+      document.getElementById("stat-sessions").textContent = sessionCount || "—";
+    } catch (e) { console.error("loadStats:", e); }
+  }
+
+  // ── LOAD HISTORY ──
+  async function loadHistory(user) {
+    try {
+      const eventsCol = collection(db, "users", user.uid, "events");
+      const evSnap    = await getDocs(eventsCol);
+      const plays     = [];
+
+      evSnap.forEach(d => {
+        const ev = d.data().events || [];
+        ev.filter(e => e.t === "play" && e.title).forEach(e => plays.push(e));
+      });
+
+      // Sort by timestamp desc, dedupe by title
+      plays.sort((a, b) => b.ts - a.ts);
+      const seen = new Set();
+      const unique = plays.filter(e => {
+        if (seen.has(e.title)) return false;
+        seen.add(e.title);
+        return true;
+      }).slice(0, 20);
+
+      const container = document.getElementById("history-list");
+      if (unique.length === 0) {
+        container.innerHTML = '<div class="empty-state">No history yet — play something!</div>';
+        return;
+      }
+
+      container.innerHTML = unique.map((e, i) => `
+        <div class="history-item">
+          <span class="h-num">${i + 1}</span>
+          <div class="h-info">
+            <div class="h-title">${esc(e.title || "Unknown")}</div>
+            <div class="h-artist">${esc(e.artist || "")}</div>
+          </div>
+          <span class="h-time">${timeAgo(e.ts)}</span>
+        </div>
+      `).join("");
+    } catch (e) { console.error("loadHistory:", e); }
+  }
+
+  // ── LOAD LIKED ──
+  async function loadLiked(user) {
+    try {
+      const likedCol = collection(db, "users", user.uid, "liked");
+      const snap     = await getDocs(likedCol);
+      const songs    = [];
+
+      snap.forEach(d => {
+        const items = d.data().songs || [];
+        items.forEach(s => songs.push(s));
+      });
+
+      const container = document.getElementById("liked-list");
+      if (songs.length === 0) {
+        container.innerHTML = '<div class="empty-state">No liked songs yet.</div>';
+        return;
+      }
+
+      songs.sort((a, b) => (b.likedAt || 0) - (a.likedAt || 0));
+      container.innerHTML = songs.slice(0, 20).map((s, i) => `
+        <div class="history-item">
+          <span class="h-num">♥</span>
+          <div class="h-info">
+            <div class="h-title">${esc(s.title || "Unknown")}</div>
+            <div class="h-artist">${esc(s.artist || "")}</div>
+          </div>
+        </div>
+      `).join("");
+    } catch (e) { console.error("loadLiked:", e); }
+  }
+
+  // ── LOAD PREFS ──
+  async function loadPrefs(user) {
+    try {
+      const snap = await getDoc(doc(db, "users", user.uid, "prefs", "main"));
+      if (!snap.exists()) return;
+      const data = snap.data();
+      const sel = (id, val) => {
+        const el = document.getElementById(id);
+        if (el && val) el.value = val;
+      };
+      sel("pref-theme",    data.theme);
+      sel("pref-mood",     data.defaultMood || "");
+      sel("pref-language", data.language);
+    } catch (e) { console.error("loadPrefs:", e); }
+  }
+
+  // ── SAVE PREFS ──
+  document.getElementById("btn-save-prefs").addEventListener("click", async () => {
+    if (!currentUser) return;
+    const theme    = document.getElementById("pref-theme").value;
+    const mood     = document.getElementById("pref-mood").value || null;
+    const language = document.getElementById("pref-language").value;
+    try {
+      await updateDoc(doc(db, "users", currentUser.uid, "prefs", "main"), {
+        theme, defaultMood: mood, language, updatedAt: serverTimestamp(),
+      });
+      showPrefsMsg("Preferences saved!", "success");
+    } catch (e) {
+      showPrefsMsg("Failed to save. Try again.", "error");
+    }
+  });
+
+  // ── SIGN OUT ──
+  document.getElementById("btn-signout").addEventListener("click", async () => {
+    await signOut(auth);
+    window.location.replace("login.html");
+  });
+
+  // ── CLEAR HISTORY ──
+  document.getElementById("btn-clear-history").addEventListener("click", () => {
+    showModal(
+      "Clear Play History?",
+      "This will delete all your listening history. This can't be undone.",
+      async () => {
+        try {
+          const eventsCol = collection(db, "users", currentUser.uid, "events");
+          const snap = await getDocs(eventsCol);
+          await Promise.all(snap.docs.map(d => deleteDoc(d.ref)));
+          showToast("History cleared.");
+          document.getElementById("history-list").innerHTML =
+            '<div class="empty-state">No history yet — play something!</div>';
+          document.getElementById("stat-sessions").textContent = "—";
+        } catch (e) { showToast("Failed to clear history."); }
+      }
+    );
+  });
+
+  // ── DELETE ACCOUNT ──
+  document.getElementById("btn-delete-account").addEventListener("click", () => {
+    showModal(
+      "Delete Account?",
+      "This permanently deletes your NETHER account and all data. Cannot be undone.",
+      async () => {
+        try {
+          await deleteUser(currentUser);
+          window.location.replace("login.html");
+        } catch (e) {
+          if (e.code === "auth/requires-recent-login") {
+            showToast("Please sign out and sign in again, then try.");
+          } else {
+            showToast("Failed to delete account.");
+          }
+        }
+      }
+    );
+  });
+
+  // ── MODAL ──
+  let confirmCallback = null;
+
+  function showModal(title, body, onConfirm) {
+    document.getElementById("modal-title").textContent = title;
+    document.getElementById("modal-body").textContent  = body;
+    confirmCallback = onConfirm;
+    document.getElementById("confirm-modal").classList.remove("hidden");
+  }
+
+  document.getElementById("modal-cancel").addEventListener("click", () => {
+    document.getElementById("confirm-modal").classList.add("hidden");
+    confirmCallback = null;
+  });
+
+  document.getElementById("modal-confirm").addEventListener("click", async () => {
+    document.getElementById("confirm-modal").classList.add("hidden");
+    if (confirmCallback) await confirmCallback();
+    confirmCallback = null;
+  });
+
+  // ── HELPERS ──
+  function esc(str) {
+    return String(str)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+  }
+
+  function timeAgo(ts) {
+    const diff = Date.now() - ts;
+    const m = Math.floor(diff / 60000);
+    if (m < 1)   return "just now";
+    if (m < 60)  return `${m}m ago`;
+    const h = Math.floor(m / 60);
+    if (h < 24)  return `${h}h ago`;
+    return `${Math.floor(h / 24)}d ago`;
+  }
+
+  function showPrefsMsg(msg, type) {
+    const el = document.getElementById("prefs-msg");
+    el.textContent = msg;
+    el.className = `prefs-msg ${type}`;
+    setTimeout(() => { el.className = "prefs-msg hidden"; }, 3000);
+  }
+
+  function showToast(msg) {
+    const t = document.getElementById("toast");
+    t.textContent = msg;
+    t.classList.add("show");
+    setTimeout(() => t.classList.remove("show"), 3000);
+  }
+</script>
+
+</body>
+</html>
