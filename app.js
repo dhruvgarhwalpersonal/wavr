@@ -641,31 +641,112 @@ const FEATURED_ARTISTS = [
   'Coldplay',
 ];
 
+const FANART_KEY = '3bccf3f4614b0b1a2f4ce1bd74f3d6c1';
+
+// Step 1: Deezer dynamic artist search → real artist photo
+async function getDeezerArtistImage(name) {
+  const data = await deezerFetch(`/search/artist?q=${encodeURIComponent(name)}&limit=1`);
+  const artist = data.data?.[0];
+  if (artist?.picture_medium && !artist.picture_medium.includes('default_artist')) {
+    return { img: artist.picture_medium, id: artist.id };
+  }
+  return null;
+}
+
+// Step 2: MusicBrainz → get MBID, then Fanart.tv → real artist photo
+async function getFanartImage(name) {
+  // Get MBID from MusicBrainz
+  const mbRes = await fetch(
+    `https://musicbrainz.org/ws/2/artist/?query=artist:${encodeURIComponent(name)}&limit=1&fmt=json`,
+    { headers: { 'User-Agent': 'WAVR/1.0 (music app)' } }
+  );
+  if (!mbRes.ok) return null;
+  const mbData = await mbRes.json();
+  const mbid = mbData.artists?.[0]?.id;
+  if (!mbid) return null;
+
+  // Get image from Fanart.tv
+  const ftRes = await fetch(`https://webservice.fanart.tv/v3/music/${mbid}?api_key=${FANART_KEY}`);
+  if (!ftRes.ok) return null;
+  const ftData = await ftRes.json();
+  const img = ftData.artistthumb?.[0]?.url || ftData.hdmusiclogo?.[0]?.url || '';
+  return img || null;
+}
+
+// Step 3: iTunes album art as last resort
+async function getItunesArtistImage(name) {
+  const qs = new URLSearchParams({ term: name, media: 'music', entity: 'song', limit: 1, attribute: 'artistTerm' }).toString();
+  const res = await fetch(`https://itunes.apple.com/search?${qs}`);
+  if (!res.ok) return null;
+  const data = await res.json();
+  const song = data.results?.[0];
+  return song?.artworkUrl100?.replace('100x100bb', '600x600bb') || null;
+}
+
+// Full fallback chain for one artist
+async function getArtistImage(name) {
+  try {
+    const deezer = await getDeezerArtistImage(name);
+    if (deezer?.img) return { img: deezer.img, deezerId: deezer.id };
+  } catch {}
+  try {
+    const fanart = await getFanartImage(name);
+    if (fanart) return { img: fanart };
+  } catch {}
+  try {
+    const itunes = await getItunesArtistImage(name);
+    if (itunes) return { img: itunes };
+  } catch {}
+  return { img: '' };
+}
+
 async function loadArtists() {
   const container = document.getElementById('artists-row');
-  const results = await Promise.allSettled(
-    FEATURED_ARTISTS.map(name => itunesSearchArtist(name))
-  );
-  container.innerHTML = results.map((res, i) => {
-    const name = FEATURED_ARTISTS[i];
-    let img = '';
-    if (res.status === 'fulfilled') {
-      const artist = res.value.results?.[0];
-      img = artist?.artworkUrl100 || '';
-    }
-    return `
-      <div class="artist-card" onclick="playArtistByName('${escHtml(name)}')">
-        ${img
-          ? `<img class="artist-avatar" src="${img}" alt="${escHtml(name)}" loading="lazy" onerror="this.style.display='none'">`
-          : '<div class="artist-avatar skeleton"></div>'}
-        <div class="artist-name">${escHtml(name)}</div>
-      </div>
-    `;
-  }).join('');
+  // Render skeletons first
+  container.innerHTML = FEATURED_ARTISTS.map(name => `
+    <div class="artist-card" id="artist-card-${escHtml(name.replace(/\s/g,'-'))}" onclick="playArtistByName('${escHtml(name)}')">
+      <div class="artist-avatar skeleton"></div>
+      <div class="artist-name">${escHtml(name)}</div>
+    </div>
+  `).join('');
+
+  // Load each artist image independently so fast ones show immediately
+  FEATURED_ARTISTS.forEach(async name => {
+    const cardId = `artist-card-${name.replace(/\s/g, '-')}`;
+    const card = document.getElementById(cardId);
+    if (!card) return;
+    try {
+      const { img, deezerId } = await getArtistImage(name);
+      const avatarEl = card.querySelector('.artist-avatar');
+      if (img && avatarEl) {
+        const imgEl = document.createElement('img');
+        imgEl.className = 'artist-avatar';
+        imgEl.src = img;
+        imgEl.alt = name;
+        imgEl.loading = 'lazy';
+        imgEl.onerror = () => {}; // stay as skeleton on error
+        avatarEl.replaceWith(imgEl);
+      }
+      if (deezerId) {
+        card.setAttribute('onclick', `playArtist('${deezerId}')`);
+      }
+    } catch {}
+  });
 }
 
 async function playArtistByName(name) {
   showToast(`Loading ${name} top tracks…`);
+  try {
+    // Try Deezer first
+    const data = await deezerFetch(`/search/artist?q=${encodeURIComponent(name)}&limit=1`);
+    const artist = data.data?.[0];
+    if (artist?.id) {
+      const tracks = await getDeezerArtistTopTracks(artist.id);
+      const normalised = (tracks.data || []).map(normaliseDeezer);
+      if (normalised.length) { setQueue(normalised, 0); playTrack(normalised[0]); return; }
+    }
+  } catch {}
+  // Fallback to iTunes
   try {
     const tracks = await itunesTopTracks(name);
     if (!tracks.length) { showToast('No tracks found'); return; }
