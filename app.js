@@ -609,10 +609,12 @@ async function playMood(mood) {
 const FEATURED_ARTISTS = [
   { id: '5882931',  name: 'Arijit Singh' },
   { id: '243513',   name: 'A.R. Rahman' },
-  { id: '4796278',  name: 'Prateek Kuhad' },
   { id: '5015922',  name: 'Diljit Dosanjh' },
-  { id: '27050538', name: 'Justin Bieber' },
+  { id: '13',       name: 'Eminem' },
+  { id: '564',      name: 'Coldplay' },
   { id: '12246',    name: 'Taylor Swift' },
+  { id: '1534',     name: 'The Weeknd' },
+  { id: '860',      name: 'Rihanna' },
 ];
 
 async function loadArtists() {
