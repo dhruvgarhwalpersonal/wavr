@@ -1,208 +1,545 @@
 /* =========================================================
-   WAVR — tracker.js
-   Instagram-level event tracking. Every interaction → Firestore.
-
-   FIRESTORE STRUCTURE (never exceeds 1 MB per document):
-   --------------------------------------------------------
-   users/{uid}/events/{YYYY-MM-DD_batch-N}
-     events: [ ...up to EVENTS_PER_DOC event objects ]
-     createdAt: timestamp
-     updatedAt: timestamp
-
-   One document holds EVENTS_PER_DOC events (~50).
-   When it fills up we auto-create the next doc.
-   A single event is ~200–400 bytes → 50 events ≈ 20 KB.
-   Stays miles under the 1 MB Firestore cap even with
-   generous metadata padding.
-
-   EVENT TYPES tracked:
-     play          — user started a track
-     pause         — user paused
-     resume        — user resumed
-     skip          — user manually skipped
-     seek          — user scrubbed the progress bar
-     complete      — track played to end
-     search_type   — user typed in search
-     search_pick   — user chose a result
-     mood_pick     — user tapped a mood card
-     session_start — page loaded / became visible
-     session_end   — page hidden / unloaded
+   NETHER — tracker.js
+   Instagram-level user intelligence engine
+   Every event → Firestore in real time
    ========================================================= */
 
-import { db }          from "./firebase.js";
-import { currentUser } from "./auth.js";
+import { db, auth } from "./firebase.js";
 import {
   doc,
-  collection,
-  addDoc,
+  setDoc,
   updateDoc,
   arrayUnion,
+  increment,
   serverTimestamp,
   getDoc,
-  setDoc,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-// ── CONSTANTS ───────────────────────────────────────────────
-const EVENTS_PER_DOC = 50;   // max events before new doc
-
-// ── IN-MEMORY BATCH (flush to Firestore in one write) ──────
-let eventBatch   = [];
-const FLUSH_MS   = 10_000;   // flush every 10 s or on page hide
-
-// ── ACTIVE DOC REFERENCE (set by resolveActiveDoc) ─────────
-let activeDocRef = null;
-let activeDocCount = 0;
-
-// ── PUBLIC API ─────────────────────────────────────────────
-
-/**
- * Call this before any track event. Enriches ctx automatically.
- * @param {string} type  — event type (see header)
- * @param {object} data  — arbitrary payload, kept small
- */
-export function track(type, data = {}) {
-  if (!currentUser) return;  // not signed in — no tracking
-
-  const event = {
-    t:    type,
-    ts:   Date.now(),
-    hr:   new Date().getHours(),            // hour of day (0–23)
-    dow:  new Date().getDay(),              // day of week (0=Sun)
-    ...sanitise(data),
-  };
-
-  eventBatch.push(event);
-
-  // Flush immediately for high-signal events
-  const IMMEDIATE = ["play", "complete", "skip", "mood_pick", "session_end"];
-  if (IMMEDIATE.includes(type)) flush();
-}
-
-/**
- * Start session tracking (call once on init).
- */
-export function startSession() {
-  track("session_start", { ref: document.referrer || "direct" });
-
-  // Flush on page hide / close
-  document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "hidden") {
-      track("session_end", { dur: Math.round(performance.now() / 1000) });
-      flush();
-    }
-  });
-
-  // Safety flush every FLUSH_MS
-  setInterval(flush, FLUSH_MS);
-}
-
-// ── FLUSH BATCH TO FIRESTORE ────────────────────────────────
-async function flush() {
-  if (!currentUser || eventBatch.length === 0) return;
-
-  const toWrite = [...eventBatch];
-  eventBatch    = [];
-
-  try {
-    await writeEvents(toWrite);
-  } catch (err) {
-    // Put them back — will retry next flush
-    eventBatch = [...toWrite, ...eventBatch];
-    console.warn("WAVR tracker: flush failed, will retry", err);
-  }
-}
-
-// ── WRITE EVENTS → ROLLING FIRESTORE DOCS ──────────────────
-//
-// Strategy:
-//   1. Find the current active doc for today
-//   2. If it has room → arrayUnion the new events
-//   3. If it's full   → create a new doc for today
-//   4. New doc naming: YYYY-MM-DD_N  (N = 0, 1, 2, …)
-//
-async function writeEvents(events) {
-  if (!activeDocRef || activeDocCount >= EVENTS_PER_DOC) {
-    await resolveActiveDoc();
-  }
-
-  // Split events if they'd overflow the current doc
-  while (events.length > 0) {
-    const room      = EVENTS_PER_DOC - activeDocCount;
-    const chunk     = events.splice(0, room);
-    activeDocCount += chunk.length;
-
-    await updateDoc(activeDocRef, {
-      events:    arrayUnion(...chunk),
-      updatedAt: serverTimestamp(),
-    });
-
-    if (events.length > 0) {
-      // This doc is full → open next
-      await resolveActiveDoc(true);
-    }
-  }
-}
-
-// ── RESOLVE ACTIVE DOC ─────────────────────────────────────
-async function resolveActiveDoc(forceNew = false) {
-  const uid     = currentUser.uid;
-  const dateStr = todayStr();
-  const colRef  = collection(db, "users", uid, "events");
-
-  if (!forceNew && activeDocRef) return; // already have one
-
-  // Find the highest existing batch index for today
-  // We store docId as YYYY-MM-DD_N so we can query by prefix pattern.
-  // Since Firestore has no "startsWith" query we track the index in
-  // a tiny "meta" document: users/{uid}/meta/eventCursor
-  const cursorRef  = doc(db, "users", uid, "meta", "eventCursor");
-  const cursorSnap = await getDoc(cursorRef);
-
-  let batchIndex = 0;
-  if (cursorSnap.exists()) {
-    const data = cursorSnap.data();
-    if (data.date === dateStr && !forceNew) {
-      batchIndex      = data.batchIndex || 0;
-      activeDocCount  = data.count      || 0;
-      activeDocRef    = doc(colRef, `${dateStr}_${batchIndex}`);
-      return;
-    }
-    if (forceNew && data.date === dateStr) {
-      batchIndex = (data.batchIndex || 0) + 1;
-    }
-  }
-
-  // Create the new doc
-  const newDocId  = `${dateStr}_${batchIndex}`;
-  activeDocRef    = doc(colRef, newDocId);
-  activeDocCount  = 0;
-
-  await setDoc(activeDocRef, {
-    events:    [],
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  });
-
-  // Update cursor
-  await setDoc(cursorRef, {
-    date:       dateStr,
-    batchIndex: batchIndex,
-    count:      0,
-  });
-}
+// ── INTERNAL STATE ──────────────────────────────────────────
+const _T = {
+  uid: null,
+  sessionId: null,
+  sessionStart: null,
+  currentTrack: null,
+  trackStart: null,       // timestamp when current track started
+  lastSeekPct: null,      // last known progress % before seek
+  pauseStart: null,       // timestamp when paused
+  totalPauseMs: 0,        // total paused time in current track
+  searchBuffer: [],       // accumulate keystrokes before final pick
+  scrollObserver: null,
+  sectionVisibility: {},  // { sectionId: firstSeenTimestamp }
+  sessionDepth: 0,        // how many tracks played this session
+  hourlyBucket: null,     // e.g. "14" for 2pm
+  dayBucket: null,        // e.g. "Mon"
+  replayCount: 0,         // times current track rewound to near start
+};
 
 // ── HELPERS ─────────────────────────────────────────────────
-function todayStr() {
-  return new Date().toISOString().slice(0, 10); // "2025-05-14"
+
+function uid() {
+  return _T.uid;
 }
 
-function sanitise(obj) {
-  // Keep payload small — truncate strings, drop nulls
-  const out = {};
-  for (const [k, v] of Object.entries(obj)) {
-    if (v === null || v === undefined) continue;
-    if (typeof v === "string") out[k] = v.slice(0, 120);
-    else out[k] = v;
+function nowMs() {
+  return Date.now();
+}
+
+function hourBucket() {
+  return String(new Date().getHours()); // "0"–"23"
+}
+
+function dayBucket() {
+  return ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][new Date().getDay()];
+}
+
+function makeSessionId() {
+  return `sess_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+// Safe Firestore write — never crashes the app
+async function fsSet(path, data, merge = true) {
+  if (!uid()) return;
+  try {
+    await setDoc(doc(db, path), data, { merge });
+  } catch (e) {
+    console.warn("[NETHER tracker] fsSet failed:", path, e.message);
   }
-  return out;
+}
+
+async function fsUpdate(path, data) {
+  if (!uid()) return;
+  try {
+    await updateDoc(doc(db, path), data);
+  } catch (e) {
+    // doc may not exist yet — fall back to merge set
+    await fsSet(path, data, true);
+  }
+}
+
+// ── SESSION LIFECYCLE ───────────────────────────────────────
+
+async function startSession() {
+  if (!uid()) return;
+
+  _T.sessionId    = makeSessionId();
+  _T.sessionStart = nowMs();
+  _T.sessionDepth = 0;
+  _T.hourlyBucket = hourBucket();
+  _T.dayBucket    = dayBucket();
+
+  // Write session open doc
+  await fsSet(`users/${uid()}/sessions/${_T.sessionId}`, {
+    startedAt: serverTimestamp(),
+    hour: _T.hourlyBucket,
+    day: _T.dayBucket,
+    tracksPlayed: 0,
+    totalListenMs: 0,
+    moods: [],
+    searches: [],
+    skips: 0,
+    completes: 0,
+    deviceWidth: window.innerWidth,
+    referrer: document.referrer || "direct",
+  });
+
+  // Increment total session count on profile
+  await fsUpdate(`users/${uid()}/profile/stats`, {
+    totalSessions: increment(1),
+    lastActiveAt: serverTimestamp(),
+  });
+
+  // Start scroll + session-depth tracking
+  _attachScrollObserver();
+  _attachSessionHeartbeat();
+
+  console.log("[NETHER tracker] Session started:", _T.sessionId);
+}
+
+async function endSession() {
+  if (!uid() || !_T.sessionId) return;
+  const durationMs = nowMs() - _T.sessionStart;
+
+  await fsUpdate(`users/${uid()}/sessions/${_T.sessionId}`, {
+    endedAt: serverTimestamp(),
+    durationMs,
+    tracksPlayed: _T.sessionDepth,
+  });
+
+  await fsUpdate(`users/${uid()}/profile/stats`, {
+    totalListenMs: increment(durationMs),
+  });
+}
+
+// Heartbeat — writes every 30s so we can detect abandoned sessions
+function _attachSessionHeartbeat() {
+  setInterval(async () => {
+    if (!_T.sessionId) return;
+    await fsUpdate(`users/${uid()}/sessions/${_T.sessionId}`, {
+      lastHeartbeat: serverTimestamp(),
+      tracksPlayed: _T.sessionDepth,
+    });
+  }, 30_000);
+}
+
+// ── SCROLL / SECTION VISIBILITY ─────────────────────────────
+
+function _attachScrollObserver() {
+  if (!("IntersectionObserver" in window)) return;
+
+  _T.scrollObserver = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((entry) => {
+        if (!entry.isIntersecting) return;
+        const sectionTitle =
+          entry.target.querySelector(".section-title")?.textContent?.trim() ||
+          entry.target.id ||
+          "unknown";
+
+        if (_T.sectionVisibility[sectionTitle]) return; // already logged
+        _T.sectionVisibility[sectionTitle] = nowMs();
+
+        _logEvent("section_view", { section: sectionTitle });
+      });
+    },
+    { threshold: 0.4 }
+  );
+
+  document.querySelectorAll(".section").forEach((sec) => {
+    _T.scrollObserver?.observe(sec);
+  });
+}
+
+// ── CORE EVENT LOGGER ───────────────────────────────────────
+
+async function _logEvent(type, payload = {}) {
+  if (!uid()) return;
+
+  const event = {
+    type,
+    ts: serverTimestamp(),
+    hour: hourBucket(),
+    day: dayBucket(),
+    sessionId: _T.sessionId,
+    ...payload,
+  };
+
+  // Write to users/{uid}/events subcollection
+  const eventId = `${type}_${Date.now()}_${Math.random().toString(36).slice(2,6)}`;
+  await fsSet(`users/${uid()}/events/${eventId}`, event, false);
+
+  // Also push a lightweight summary to session doc
+  if (_T.sessionId) {
+    await fsUpdate(`users/${uid()}/sessions/${_T.sessionId}`, {
+      lastEventAt: serverTimestamp(),
+    });
+  }
+}
+
+// ── PLAY ────────────────────────────────────────────────────
+
+async function onPlay(payload) {
+  const { title, artist } = payload;
+
+  _T.trackStart    = nowMs();
+  _T.pauseStart    = null;
+  _T.totalPauseMs  = 0;
+  _T.replayCount   = 0;
+  _T.sessionDepth += 1;
+
+  _T.currentTrack = { title, artist };
+
+  await _logEvent("play", {
+    title,
+    artist,
+    sessionDepth: _T.sessionDepth,
+    hour: hourBucket(),
+  });
+
+  // Increment per-track play count
+  const trackKey = _makeTrackKey(title, artist);
+  await fsUpdate(`users/${uid()}/trackStats/${trackKey}`, {
+    playCount: increment(1),
+    lastPlayedAt: serverTimestamp(),
+    title,
+    artist,
+  });
+
+  // Increment per-artist affinity score (+1 raw play)
+  const artistKey = _makeKey(artist);
+  await fsUpdate(`users/${uid()}/artistAffinity/${artistKey}`, {
+    rawPlays: increment(1),
+    artist,
+    lastPlayedAt: serverTimestamp(),
+  });
+
+  // Update session track count
+  await fsUpdate(`users/${uid()}/sessions/${_T.sessionId}`, {
+    tracksPlayed: increment(1),
+    [`trackIds.${trackKey}`]: true,
+  });
+
+  // Recently played (array capped in Firestore update)
+  await fsUpdate(`users/${uid()}/profile/recentlyPlayed`, {
+    tracks: arrayUnion({ title, artist, playedAt: new Date().toISOString() }),
+  });
+}
+
+// ── PAUSE ───────────────────────────────────────────────────
+
+async function onPause() {
+  _T.pauseStart = nowMs();
+
+  const secondsPlayed = _T.trackStart
+    ? Math.floor((nowMs() - _T.trackStart - _T.totalPauseMs) / 1000)
+    : 0;
+
+  await _logEvent("pause", {
+    title: _T.currentTrack?.title,
+    artist: _T.currentTrack?.artist,
+    secondsPlayed,
+  });
+}
+
+// ── RESUME ──────────────────────────────────────────────────
+
+async function onResume() {
+  if (_T.pauseStart) {
+    _T.totalPauseMs += nowMs() - _T.pauseStart;
+    _T.pauseStart = null;
+  }
+
+  await _logEvent("resume", {
+    title: _T.currentTrack?.title,
+    pauseDurationMs: _T.totalPauseMs,
+  });
+}
+
+// ── COMPLETE ────────────────────────────────────────────────
+
+async function onComplete(payload) {
+  const { title } = payload;
+  const listenMs = _T.trackStart
+    ? nowMs() - _T.trackStart - _T.totalPauseMs
+    : 0;
+
+  await _logEvent("complete", {
+    title,
+    artist: _T.currentTrack?.artist,
+    listenMs,
+    replayCount: _T.replayCount,
+  });
+
+  // High-value signal: full completion → strong affinity boost
+  const artistKey = _makeKey(_T.currentTrack?.artist || "");
+  const trackKey  = _makeTrackKey(title, _T.currentTrack?.artist || "");
+
+  await fsUpdate(`users/${uid()}/artistAffinity/${artistKey}`, {
+    completes: increment(1),
+    totalListenMs: increment(listenMs),
+  });
+
+  await fsUpdate(`users/${uid()}/trackStats/${trackKey}`, {
+    completes: increment(1),
+    totalListenMs: increment(listenMs),
+  });
+
+  await fsUpdate(`users/${uid()}/sessions/${_T.sessionId}`, {
+    completes: increment(1),
+    totalListenMs: increment(listenMs),
+  });
+
+  // Update Taste DNA with completion signal
+  await _updateTasteDNA("complete", { artist: _T.currentTrack?.artist, listenMs });
+}
+
+// ── SKIP ────────────────────────────────────────────────────
+
+async function onSkip(payload) {
+  const { dir } = payload;
+
+  const secondsPlayed = _T.trackStart
+    ? Math.floor((nowMs() - _T.trackStart - _T.totalPauseMs) / 1000)
+    : 0;
+
+  // Skip velocity: how quickly they bailed
+  const skipVelocity = secondsPlayed < 5 ? "instant" :
+                       secondsPlayed < 15 ? "quick" :
+                       secondsPlayed < 30 ? "mid" : "late";
+
+  await _logEvent("skip", {
+    title: _T.currentTrack?.title,
+    artist: _T.currentTrack?.artist,
+    dir,
+    secondsPlayed,
+    skipVelocity,
+  });
+
+  // Instant skip is a strong negative signal
+  if (skipVelocity === "instant") {
+    const artistKey = _makeKey(_T.currentTrack?.artist || "");
+    await fsUpdate(`users/${uid()}/artistAffinity/${artistKey}`, {
+      instantSkips: increment(1),
+    });
+  }
+
+  const trackKey = _makeTrackKey(
+    _T.currentTrack?.title || "",
+    _T.currentTrack?.artist || ""
+  );
+  await fsUpdate(`users/${uid()}/trackStats/${trackKey}`, {
+    skips: increment(1),
+    lastSkipAt: secondsPlayed,
+  });
+
+  await fsUpdate(`users/${uid()}/sessions/${_T.sessionId}`, {
+    skips: increment(1),
+  });
+}
+
+// ── SEEK ────────────────────────────────────────────────────
+
+async function onSeek(payload) {
+  const { pct } = payload;
+  const prevPct = _T.lastSeekPct ?? 0;
+  _T.lastSeekPct = Number(pct);
+
+  // Replay = seeked back to near start
+  if (Number(pct) < 5 && prevPct > 50) {
+    _T.replayCount += 1;
+    await _logEvent("replay", {
+      title: _T.currentTrack?.title,
+      fromPct: prevPct,
+      replayCount: _T.replayCount,
+    });
+    // Replay is a love signal → boost affinity
+    const artistKey = _makeKey(_T.currentTrack?.artist || "");
+    await fsUpdate(`users/${uid()}/artistAffinity/${artistKey}`, {
+      replays: increment(1),
+    });
+    return;
+  }
+
+  // Forward seek = skipping a section
+  // Backward seek = rewinding to rehear something
+  const seekType = Number(pct) > prevPct ? "forward" : "rewind";
+
+  await _logEvent("seek", {
+    title: _T.currentTrack?.title,
+    fromPct: prevPct,
+    toPct: Number(pct),
+    seekType,
+  });
+}
+
+// ── MOOD PICK ───────────────────────────────────────────────
+
+async function onMoodPick(payload) {
+  const { mood } = payload;
+
+  await _logEvent("mood_pick", {
+    mood,
+    hour: hourBucket(),
+    day: dayBucket(),
+  });
+
+  // Mood × time of day matrix — the Instagram-level signal
+  const hourKey = `h${hourBucket()}`;
+  await fsUpdate(`users/${uid()}/moodMatrix/${mood}`, {
+    total: increment(1),
+    [hourKey]: increment(1),
+    lastPickedAt: serverTimestamp(),
+  });
+
+  await fsUpdate(`users/${uid()}/sessions/${_T.sessionId}`, {
+    moods: arrayUnion(mood),
+  });
+
+  await _updateTasteDNA("mood", { mood, hour: hourBucket() });
+}
+
+// ── SEARCH ──────────────────────────────────────────────────
+
+async function onSearchType(payload) {
+  // Buffer keystrokes — we only write when they stop typing
+  _T.searchBuffer.push(payload.q);
+}
+
+async function onSearchPick(payload) {
+  const { title, artist } = payload;
+  const query = _T.searchBuffer[_T.searchBuffer.length - 1] || "";
+  _T.searchBuffer = [];
+
+  await _logEvent("search_pick", {
+    query,
+    chosenTitle: title,
+    chosenArtist: artist,
+    queryLength: query.length,
+  });
+
+  await fsUpdate(`users/${uid()}/sessions/${_T.sessionId}`, {
+    searches: arrayUnion(query),
+  });
+
+  // Log search intent → chosen track mapping
+  if (query) {
+    const searchKey = `${_makeKey(query)}_${Date.now()}`;
+    await fsSet(`users/${uid()}/searchHistory/${searchKey}`, {
+      query,
+      chosenTitle: title,
+      chosenArtist: artist,
+      ts: serverTimestamp(),
+    }, false);
+  }
+}
+
+// ── TASTE DNA ENGINE ────────────────────────────────────────
+// Living profile — updates on every meaningful signal
+
+async function _updateTasteDNA(signalType, data = {}) {
+  if (!uid()) return;
+
+  const dnaRef = `users/${uid()}/profile/tasteDNA`;
+
+  if (signalType === "complete" && data.artist) {
+    const artistKey = _makeKey(data.artist);
+    await fsUpdate(dnaRef, {
+      [`topArtists.${artistKey}.completes`]: increment(1),
+      [`topArtists.${artistKey}.totalListenMs`]: increment(data.listenMs || 0),
+      [`topArtists.${artistKey}.artist`]: data.artist,
+      updatedAt: serverTimestamp(),
+    });
+  }
+
+  if (signalType === "mood" && data.mood) {
+    await fsUpdate(dnaRef, {
+      [`moodFreq.${data.mood}`]: increment(1),
+      [`hourlyMood.h${data.hour}.${data.mood}`]: increment(1),
+      updatedAt: serverTimestamp(),
+    });
+  }
+}
+
+// ── SECTION VIEW ────────────────────────────────────────────
+// Already handled by scroll observer → _logEvent("section_view", ...)
+
+// ── INIT — called by app.js after auth ──────────────────────
+
+async function _init(user) {
+  _T.uid = user.uid;
+
+  // Ensure profile doc exists
+  await fsSet(`users/${uid()}/profile/meta`, {
+    displayName: user.displayName || "Anonymous",
+    email: user.email || "",
+    photoURL: user.photoURL || "",
+    createdAt: serverTimestamp(),
+    appVersion: "2.0",
+  });
+
+  await startSession();
+}
+
+// ── PUBLIC API ──────────────────────────────────────────────
+
+export function track(eventType, payload = {}) {
+  switch (eventType) {
+    case "play":          onPlay(payload);          break;
+    case "pause":         onPause();                break;
+    case "resume":        onResume();               break;
+    case "complete":      onComplete(payload);      break;
+    case "skip":          onSkip(payload);          break;
+    case "seek":          onSeek(payload);          break;
+    case "mood_pick":     onMoodPick(payload);      break;
+    case "search_type":   onSearchType(payload);    break;
+    case "search_pick":   onSearchPick(payload);    break;
+    case "section_view":  _logEvent("section_view", payload); break;
+    default:              _logEvent(eventType, payload);      break;
+  }
+}
+
+// ── WIRE INTO app.js ─────────────────────────────────────────
+// app.js checks: window.netherTrack?.('event', payload)
+// and:           window._netherStartSession?.()
+
+window._netherTrackFn = track;
+
+window._netherStartSession = async () => {
+  const user = auth.currentUser;
+  if (user) await _init(user);
+};
+
+// End session on tab close
+window.addEventListener("beforeunload", endSession);
+
+// ── KEY HELPERS ─────────────────────────────────────────────
+
+function _makeKey(str) {
+  return (str || "unknown")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "_")
+    .slice(0, 60);
+}
+
+function _makeTrackKey(title, artist) {
+  return `${_makeKey(title)}__${_makeKey(artist)}`;
 }
