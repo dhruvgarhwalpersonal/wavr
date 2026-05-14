@@ -1,4 +1,3 @@
 const CONFIG = {
-  LASTFM_API_KEY: "f8a81953995c7cbb091fce72748cef80",
   YOUTUBE_API_KEY: "AIzaSyDUtqDGlcDUD4hdBU5GlaS3j-Cfe_wDUhA",
 };

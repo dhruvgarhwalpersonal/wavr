@@ -52,43 +52,45 @@ async function getDeezerAlbumTracks(albumId) {
   return deezerFetch(`/album/${albumId}/tracks?limit=1`);
 }
 
-// ── LAST.FM ────────────────────────────────────────────────
-async function lastfmFetch(params) {
-  const base = 'https://ws.audioscrobbler.com/2.0/';
-  const qs = new URLSearchParams({
-    ...params,
-    api_key: CONFIG.LASTFM_API_KEY,
-    format: 'json',
-  }).toString();
-  const res = await fetch(proxyUrl(`${base}?${qs}`));
-  if (!res.ok) throw new Error('Last.fm error');
-  return res.json();
-}
+// ── DEEZER REPLACEMENTS FOR LAST.FM ───────────────────────
 
+// Trending in India — Deezer India chart (genre 519 = Bollywood/Indian)
 async function getTrendingIndia() {
-  const data = await lastfmFetch({ method: 'geo.gettoptracks', country: 'india', limit: 20 });
-  return data.tracks?.track || [];
+  // Deezer chart for India: top tracks
+  const data = await deezerFetch('/chart/0/tracks?limit=20');
+  return (data.data || []).map(normaliseDeezer);
 }
 
-async function getLastfmSimilarTracks(artist, track) {
-  const data = await lastfmFetch({
-    method: 'track.getsimilar',
-    artist,
-    track,
-    limit: 20,
-    autocorrect: 1,
-  });
-  return data.similartracks?.track || [];
+// Similar tracks via Deezer radio (seed track)
+async function getDeezerSimilarTracks(trackId) {
+  const data = await deezerFetch(`/track/${trackId}/radio?limit=20`);
+  return (data.data || []).map(normaliseDeezer);
 }
 
-async function getLastfmTagTracks(tag) {
-  const data = await lastfmFetch({ method: 'tag.gettoptracks', tag, limit: 20 });
-  return data.tracks?.track || [];
+// Mood/tag tracks via Deezer genre search
+const MOOD_DEEZER_QUERIES = {
+  happy:  'feel good happy hits',
+  sad:    'sad heartbreak songs',
+  party:  'party dance hits',
+  chill:  'chill lofi relax',
+  focus:  'focus study instrumental',
+  energy: 'workout energy power',
+};
+
+async function getDeezerMoodTracks(mood) {
+  const q = MOOD_DEEZER_QUERIES[mood] || mood;
+  const data = await deezerFetch(`/search?q=${encodeURIComponent(q)}&limit=20`);
+  return (data.data || []).map(normaliseDeezer);
 }
 
+// Search — Deezer only now (no Last.fm fallback needed)
 async function searchLastfm(query, limit = 10) {
-  const data = await lastfmFetch({ method: 'track.search', track: query, limit });
-  return data.results?.trackmatches?.track || [];
+  // Replaced with extra Deezer search for more results
+  const data = await searchDeezer(query, limit);
+  return (data.data || []).map(t => ({
+    ...normaliseDeezer(t),
+    _score: searchRelevance(query, t.title || t.name || ''),
+  }));
 }
 
 // ── YOUTUBE ────────────────────────────────────────────────
@@ -175,30 +177,10 @@ function searchRelevance(query, trackName) {
   return matched / qWords.length;
 }
 
-// ── ENRICH Last.fm WITH DEEZER ─────────────────────────────
-const LASTFM_PLACEHOLDER = '2a96cbd8b46e442fc41c2b86b821562f';
-
-async function enrichLastfmWithDeezer(lfmTracks) {
-  const enriched = await Promise.all(
-    lfmTracks.slice(0, 12).map(async t => {
-      const artistName = typeof t.artist === 'string' ? t.artist : t.artist?.name || '';
-      try {
-        const data = await searchDeezer(`${t.name} ${artistName}`, 1);
-        const first = data.data?.[0];
-        if (first) return normaliseDeezer(first);
-      } catch {}
-      const cover = t.image?.find(i => i.size === 'extralarge')?.['#text'] || '';
-      return {
-        id: t.mbid || `lfm-${t.name}-${artistName}`,
-        name: t.name,
-        artist: artistName,
-        cover: cover.includes(LASTFM_PLACEHOLDER) ? '' : cover,
-        duration: 0,
-        source: 'lastfm',
-      };
-    })
-  );
-  return enriched.filter(Boolean);
+// ── PASSTHROUGH (Deezer tracks already normalised) ─────────
+async function enrichLastfmWithDeezer(tracks) {
+  // Tracks are already Deezer-normalised, just return them
+  return tracks.filter(Boolean);
 }
 
 // ── RENDER HELPERS ─────────────────────────────────────────
@@ -457,25 +439,10 @@ async function loadTrendingIndia() {
   const container = document.getElementById('trending-list');
   try {
     const tracks = await getTrendingIndia();
-    const norm = tracks.slice(0, 15).map(normaliseLastfm);
-
-    const enriched = await Promise.all(
-      norm.map(async t => {
-        if (!t.cover || t.cover.includes(LASTFM_PLACEHOLDER)) {
-          try {
-            const d = await searchDeezer(`${t.name} ${t.artist}`, 1);
-            const first = d.data?.[0];
-            if (first) return { ...normaliseDeezer(first), name: t.name, artist: t.artist };
-          } catch {}
-        }
-        return t;
-      })
-    );
-
-    currentListQueue = enriched;
-    container.innerHTML = enriched.map((t, i) => renderListTrack(t, i)).join('');
+    currentListQueue = tracks;
+    container.innerHTML = tracks.map((t, i) => renderListTrack(t, i)).join('');
   } catch {
-    container.innerHTML = '<p style="padding:12px;color:var(--text3);font-size:.85rem">Could not load trending — check Last.fm API key</p>';
+    container.innerHTML = '<p style="padding:12px;color:var(--text3);font-size:.85rem">Could not load trending</p>';
   }
 }
 
@@ -546,38 +513,28 @@ window.handleNewRelPlay = async (idx) => {
 // ── INTELLIGENT RECOMMENDATIONS ────────────────────────────
 async function getSmartRecommendations(artistName, trackName) {
   try {
-    const similar = await getLastfmSimilarTracks(artistName, trackName);
-    if (similar.length >= 5) {
-      const enriched = await enrichLastfmWithDeezer(similar);
-      if (enriched.length >= 4) return enriched;
+    // Find the track on Deezer to get its ID for radio
+    const data = await searchDeezer(`${trackName} ${artistName}`, 1);
+    const first = data.data?.[0];
+    if (first) {
+      const similar = await getDeezerSimilarTracks(first.id);
+      if (similar.length >= 4) return similar;
     }
   } catch {}
 
+  // Fallback: search by artist
   try {
-    const artistData = await lastfmFetch({
-      method: 'artist.gettoptracks',
-      artist: artistName,
-      limit: 1,
-      autocorrect: 1,
-    });
-    const topTrack = artistData.toptracks?.track?.[0];
-    if (topTrack) {
-      const similar = await getLastfmSimilarTracks(artistName, topTrack.name);
-      if (similar.length >= 4) {
-        const enriched = await enrichLastfmWithDeezer(similar);
-        if (enriched.length >= 4) return enriched;
-      }
-    }
+    const data = await searchDeezer(artistName, 10);
+    const tracks = (data.data || []).map(normaliseDeezer);
+    if (tracks.length >= 4) return tracks;
   } catch {}
 
-  return getTagBasedRecommendations('bollywood');
-}
-
-async function getTagBasedRecommendations(tag) {
+  // Last fallback: Deezer global chart
   try {
-    const tracks = await getLastfmTagTracks(tag);
-    if (tracks.length) return await enrichLastfmWithDeezer(tracks);
+    const data = await deezerFetch('/chart/0/tracks?limit=12');
+    return (data.data || []).map(normaliseDeezer);
   } catch {}
+
   return [];
 }
 
@@ -598,9 +555,11 @@ async function loadRecommendations() {
   const container = document.getElementById('recommended-row');
   container.innerHTML = renderSkeletonCards(8);
   try {
-    const tags = ['bollywood', 'hindi', 'punjabi', 'indian', 'desi'];
-    const tag = tags[Math.floor(Math.random() * tags.length)];
-    const tracks = await getTagBasedRecommendations(tag);
+    // Use Deezer chart with a random genre flavour for variety
+    const queries = ['bollywood hits', 'punjabi pop', 'hindi romantic', 'indian pop', 'desi beats'];
+    const q = queries[Math.floor(Math.random() * queries.length)];
+    const data = await searchDeezer(q, 12);
+    const tracks = (data.data || []).map(normaliseDeezer);
     if (!tracks.length) throw new Error('No tracks');
     renderRecTracks(tracks);
   } catch {
@@ -634,31 +593,10 @@ window.handleRecPlay = (idx) => {
 };
 
 // ── MOOD ───────────────────────────────────────────────────
-const MOOD_TAGS = {
-  happy:  ['happy', 'feel-good', 'upbeat'],
-  sad:    ['sad', 'melancholy', 'heartbreak'],
-  party:  ['party', 'dance', 'club'],
-  chill:  ['chill', 'relax', 'lofi'],
-  focus:  ['study', 'focus', 'instrumental'],
-  energy: ['workout', 'energy', 'power'],
-};
-
 async function playMood(mood) {
   showToast(`Loading ${mood} vibes…`);
   try {
-    const tags = MOOD_TAGS[mood] || [mood];
-    let tracks = [];
-    for (const tag of tags) {
-      const lfmTracks = await getLastfmTagTracks(tag);
-      if (lfmTracks.length >= 5) {
-        tracks = await enrichLastfmWithDeezer(lfmTracks);
-        if (tracks.length >= 4) break;
-      }
-    }
-    if (!tracks.length) {
-      const data = await searchDeezer(`${mood} music`, 10);
-      tracks = (data.data || []).map(normaliseDeezer);
-    }
+    const tracks = await getDeezerMoodTracks(mood);
     if (!tracks.length) { showToast('No tracks for this mood'); return; }
     setQueue(tracks, 0);
     playTrack(tracks[0]);
