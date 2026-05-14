@@ -52,6 +52,42 @@ async function getDeezerAlbumTracks(albumId) {
   return deezerFetch(`/album/${albumId}/tracks?limit=1`);
 }
 
+// ── iTunes Search API (free, no key) ───────────────────────
+async function itunesFetch(params) {
+  const qs = new URLSearchParams({ ...params, media: 'music', entity: 'song', limit: 20 }).toString();
+  const res = await fetch(`https://itunes.apple.com/search?${qs}`);
+  if (!res.ok) throw new Error('iTunes error');
+  return res.json();
+}
+
+async function itunesSearchArtist(artistName) {
+  const qs = new URLSearchParams({ term: artistName, media: 'music', entity: 'musicArtist', limit: 1 }).toString();
+  const res = await fetch(`https://itunes.apple.com/search?${qs}`);
+  if (!res.ok) throw new Error('iTunes artist error');
+  return res.json();
+}
+
+async function itunesTopTracks(artistName) {
+  const data = await itunesFetch({ term: artistName });
+  return (data.results || []).map(normaliseItunes);
+}
+
+async function itunesSearch(query, limit = 12) {
+  const data = await itunesFetch({ term: query, limit });
+  return (data.results || []).map(normaliseItunes);
+}
+
+function normaliseItunes(t) {
+  return {
+    id: `itunes-${t.trackId || t.collectionId}`,
+    name: t.trackName || t.collectionName || 'Unknown',
+    artist: t.artistName || 'Unknown',
+    cover: (t.artworkUrl100 || '').replace('100x100', '300x300'),
+    duration: Math.floor((t.trackTimeMillis || 0) / 1000),
+    source: 'itunes',
+  };
+}
+
 // ── DEEZER REPLACEMENTS FOR LAST.FM ───────────────────────
 
 // Trending in India — Deezer India chart (genre 519 = Bollywood/Indian)
@@ -354,45 +390,17 @@ async function handleSearch(query) {
       });
     } catch {}
 
-    // 2. Last.fm fallback if Deezer has fewer than 3 good matches
+    // 2. iTunes fallback if Deezer has fewer than 3 good matches
     const goodDeezer = scoredTracks.filter(t => t._score >= 0.4);
     if (goodDeezer.length < 3) {
       try {
-        const lfmTracks = await searchLastfm(query, 10);
+        const itunesTracks = await itunesSearch(query, 10);
         const seen = new Set(scoredTracks.map(t => t.name.toLowerCase()));
-
-        const lfmScored = await Promise.all(
-          lfmTracks.slice(0, 10).map(async t => {
-            const artistName = typeof t.artist === 'string' ? t.artist : (t.artist?.name || '');
-            if (seen.has(t.name.toLowerCase())) return null;
-
-            let cover = '';
-            try {
-              const d = await searchDeezer(`${t.name} ${artistName}`, 1);
-              const first = d.data?.[0];
-              if (first) cover = first.album?.cover_medium || '';
-            } catch {}
-
-            if (!cover) {
-              const img = t.image?.find(i => i.size === 'large')?.['#text'] || '';
-              cover = img.includes(LASTFM_PLACEHOLDER) ? '' : img;
-            }
-
+        for (const t of itunesTracks) {
+          if (!seen.has(t.name.toLowerCase())) {
+            scoredTracks.push({ ...t, _score: searchRelevance(query, t.name) });
             seen.add(t.name.toLowerCase());
-            return {
-              id: t.mbid || `lfm-${t.name}-${artistName}`,
-              name: t.name,
-              artist: artistName || 'Unknown',
-              cover,
-              duration: parseInt(t.duration, 10) || 0,
-              source: 'lastfm',
-              _score: searchRelevance(query, t.name),
-            };
-          })
-        );
-
-        for (const t of lfmScored) {
-          if (t) scoredTracks.push(t);
+          }
         }
       } catch {}
     }
@@ -607,45 +615,51 @@ async function playMood(mood) {
 
 // ── FEATURED ARTISTS ───────────────────────────────────────
 const FEATURED_ARTISTS = [
-  { id: '5882931',  name: 'Arijit Singh' },
-  { id: '243513',   name: 'A.R. Rahman' },
-  { id: '5015922',  name: 'Diljit Dosanjh' },
-  { id: '13',       name: 'Eminem' },
-  { id: '564',      name: 'Coldplay' },
-  { id: '12246',    name: 'Taylor Swift' },
-  { id: '1534',     name: 'The Weeknd' },
-  { id: '860',      name: 'Rihanna' },
+  'Arijit Singh',
+  'A.R. Rahman',
+  'Diljit Dosanjh',
+  'Pritam',
+  'Eminem',
+  'Taylor Swift',
+  'The Weeknd',
+  'Coldplay',
 ];
 
 async function loadArtists() {
   const container = document.getElementById('artists-row');
   const results = await Promise.allSettled(
-    FEATURED_ARTISTS.map(a => getDeezerArtist(a.id))
+    FEATURED_ARTISTS.map(name => itunesSearchArtist(name))
   );
   container.innerHTML = results.map((res, i) => {
-    const fallbackName = FEATURED_ARTISTS[i].name;
-    const fallbackId   = FEATURED_ARTISTS[i].id;
+    const name = FEATURED_ARTISTS[i];
+    let img = '';
     if (res.status === 'fulfilled') {
-      const a    = res.value;
-      const img  = a.picture_medium || a.picture || '';
-      const name = a.name || fallbackName;
-      const id   = a.id   || fallbackId;
-      return `
-        <div class="artist-card" onclick="playArtist('${id}')">
-          ${img
-            ? `<img class="artist-avatar" src="${img}" alt="${escHtml(name)}" loading="lazy">`
-            : '<div class="artist-avatar skeleton"></div>'}
-          <div class="artist-name">${escHtml(name)}</div>
-        </div>
-      `;
+      const artist = res.value.results?.[0];
+      // iTunes returns artworkUrl100 on song results; for artists use their artworkUrl60 or artworkUrl100
+      img = artist?.artworkUrl100 || artist?.artworkUrl60 || '';
+      if (img) img = img.replace('100x100bb', '300x300bb').replace('60x60bb', '300x300bb');
     }
     return `
-      <div class="artist-card" onclick="playArtist('${fallbackId}')">
-        <div class="artist-avatar skeleton"></div>
-        <div class="artist-name">${escHtml(fallbackName)}</div>
+      <div class="artist-card" onclick="playArtistByName('${escHtml(name)}')">
+        ${img
+          ? `<img class="artist-avatar" src="${img}" alt="${escHtml(name)}" loading="lazy" onerror="this.style.display='none'">`
+          : '<div class="artist-avatar skeleton"></div>'}
+        <div class="artist-name">${escHtml(name)}</div>
       </div>
     `;
   }).join('');
+}
+
+async function playArtistByName(name) {
+  showToast(`Loading ${name} top tracks…`);
+  try {
+    const tracks = await itunesTopTracks(name);
+    if (!tracks.length) { showToast('No tracks found'); return; }
+    setQueue(tracks, 0);
+    playTrack(tracks[0]);
+  } catch {
+    showToast('Could not load artist — try again');
+  }
 }
 
 async function playArtist(artistId) {
