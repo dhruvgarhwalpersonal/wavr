@@ -14,7 +14,7 @@ export default async function handler(req, res) {
   if (!url) return res.status(400).json({ error: 'Missing url parameter' });
 
   // ── SECURITY: only allow these two APIs ──────────────────
-  const ALLOWED = ['api.deezer.com', 'ws.audioscrobbler.com'];
+  const ALLOWED = ['api.deezer.com', 'ws.audioscrobbler.com', 'itunes.apple.com', 'webservice.fanart.tv', 'musicbrainz.org'];
 
   let target;
   try {
